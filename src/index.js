@@ -54,8 +54,8 @@ export async function connect(opts = {}) {
       await interact.tap(ref, _refMap, adbOpts);
     },
 
-    async type(ref, text) {
-      await interact.type(ref, text, _refMap, adbOpts);
+    async type(ref, text, opts = {}) {
+      await interact.type(ref, text, _refMap, { ...adbOpts, ...opts });
     },
 
     async press(key) {

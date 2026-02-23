@@ -32,14 +32,24 @@ export async function tap(ref, refMap, opts = {}) {
 }
 
 /**
- * Type text into a node by ref (focus tap + word-by-word input).
+ * Type text into a node by ref.
+ * Skips focus tap if node is already focused.
+ * opts.clear: select-all + delete before typing.
  */
 export async function type(ref, text, refMap, opts = {}) {
   const node = resolveRef(ref, refMap);
-  const { x, y } = boundsCenter(node.bounds);
-  // Tap to focus
-  await shell(`input tap ${x} ${y}`, opts);
-  await new Promise(r => setTimeout(r, 500));
+  // Only tap to focus if not already focused
+  if (!node.focused) {
+    const { x, y } = boundsCenter(node.bounds);
+    await shell(`input tap ${x} ${y}`, opts);
+    await new Promise(r => setTimeout(r, 500));
+  }
+  // Clear existing content if requested (move to end, batch-delete 50 chars)
+  if (opts.clear) {
+    const deletes = ' 67'.repeat(50); // KEYCODE_DELETE × 50
+    await shell(`input keyevent 123${deletes}`, opts); // MOVE_END then delete
+    await new Promise(r => setTimeout(r, 300));
+  }
   // Type word-by-word with KEYCODE_SPACE between (API 35+ fix)
   const words = text.split(' ');
   for (let i = 0; i < words.length; i++) {
