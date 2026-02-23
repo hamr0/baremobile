@@ -17,5 +17,6 @@
 - **Runtime:** Node.js >= 22
 - **Protocol:** ADB (Android Debug Bridge) via `child_process.execFile` — no Appium
 - **Device:** Any ADB-connected Android device or emulator
-- **Tests:** Run with `node --test test/unit/*.test.js test/integration/*.test.js`
+- **Modules:** 6 files in `src/`, zero required deps
+- **Tests:** 36 passing — run with `node --test test/unit/*.test.js test/integration/*.test.js`
 - **Docs:** `docs/research.md` (feasibility research), `docs/poc-plan.md` (POC scope)

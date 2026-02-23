@@ -1,13 +1,37 @@
 {
   "name": "baremobile",
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
-  "description": "Vanilla JS library — ADB-direct Android control for autonomous agents",
+  "description": "ADB-direct Android control for autonomous agents. Accessibility tree in, pruned snapshot out.",
+  "main": "src/index.js",
+  "exports": {
+    ".": "./src/index.js"
+  },
   "engines": {
     "node": ">=22"
   },
   "scripts": {
     "test": "node --test test/unit/*.test.js test/integration/*.test.js"
   },
-  "license": "MIT"
+  "keywords": [
+    "android",
+    "adb",
+    "automation",
+    "accessibility",
+    "agent",
+    "ai",
+    "llm",
+    "mobile",
+    "uiautomator"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/hamr0/baremobile.git"
+  },
+  "author": "hamr0",
+  "license": "MIT",
+  "files": [
+    "src/",
+    "README.md"
+  ]
 }
