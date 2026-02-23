@@ -275,6 +275,54 @@ node --test test/unit/*.test.js test/integration/*.test.js
 
 Integration tests auto-skip when no ADB device is available.
 
+## Verified Flows
+
+Tested end-to-end on API 35 emulator, February 2024:
+
+| Flow | Steps | Result |
+|------|-------|--------|
+| **Open app, read screen** | `launch('com.android.settings')` → `snapshot()` | Clean YAML: "Settings", "Network & internet", "Connected devices" with refs on every tappable group |
+| **Search by typing** | Settings → `tap(searchRef)` → `type(inputRef, 'wifi')` → `snapshot()` | TextInput shows `"wifi"`, results list: Wi-Fi, Wi-Fi hotspot, Wi-Fi Direct, Wi-Fi scanning, etc. |
+| **Navigate back** | `press('back')` or `back()` from any screen | Returns to previous screen, snapshot confirms |
+| **Scroll long lists** | Settings → `scroll(listRef, 'down')` → `snapshot()` | Scrolled past first items, new items visible (Connected devices → Apps → Notifications) |
+| **Send a text message** | Messages → Start chat → `type(toRef, '5551234567')` → tap suggestion → `type(composeRef, 'Hello from baremobile!')` → `tap(sendRef)` | Message composed and sent. Snapshot confirms: "You said Hello from baremobile!" with timestamp. Full multi-step flow. |
+| **Insert emoji** | In compose → `tap(emojiButtonRef)` → emoji panel opens with grid of tappable emojis (each has `[ref=N]`) → `tap(smileyRef)` → emoji inserted in TextInput | TextInput shows `"😀😂"` after tapping two emojis. Agent reads emoji names from contentDesc. |
+| **Attach a file** | In compose → tap `+` button → tap Files → system file picker opens → navigate to Downloads → tap `test-attach.txt` | File selected from picker. (Emulator SMS rejects attachments, but the UI flow works end-to-end: picker → navigate → select → return to compose.) |
+| **Dismiss dialogs** | "Attachments not supported" dialog appears → snapshot shows text + "OK" button with ref → `tap(okRef)` | Dialog dismissed. Agent reads dialog text, decides, taps. |
+| **Screenshot capture** | `screenshot()` anywhere | PNG buffer with correct magic bytes, visual confirmation of screen state |
+| **Home screen** | `home()` from any app | Returns to launcher, snapshot shows app grid + search bar |
+| **App switching** | `press('recent')` | Opens recent apps view |
+
+### What the agent handles without help
+
+| Obstacle | How it's handled |
+|----------|-----------------|
+| **Bloated accessibility tree** | 4-step pruning: collapse layout wrappers (FrameLayout, LinearLayout, ConstraintLayout, etc.), drop empty nodes, dedup RecyclerView/ListView repeats. Agent sees content, not structure. |
+| **200+ Android widget classes** | 27 class→role mappings. `android.widget.TextView` → `Text`, `androidx.appcompat.widget.AppCompatButton` → `Button`, etc. Unknown → last segment. Agent sees roles, not Java packages. |
+| **Text input broken on API 35+** | `input text "hello world"` fails with spaces. Workaround: split into words, type each with `input text`, inject KEYCODE_SPACE (62) between. Shell-escapes `& \| ; $ \` " ' \ < > ( )`. |
+| **uiautomator dump broken on API 35+** | `dump /dev/tty` no longer works. Dumps to `/data/local/tmp/baremobile.xml`, cats it back via `exec-out` (binary-safe, no `\r\n` mangling). |
+| **Finding the right element** | Every clickable/editable/scrollable node gets `[ref=N]`. Agent reads snapshot, picks ref, calls `tap(ref)`. Library resolves bounds center → `input tap X Y`. No coordinate math for the agent. |
+| **Multi-step forms** | Tap to focus → type → tap next field → type → tap submit. Each snapshot gives fresh refs. Agent follows the UI just like a human. |
+| **Confirmation dialogs** | Dialogs appear in the accessibility tree with their buttons. Agent reads "OK" / "Cancel" / "Allow", taps the right ref. |
+| **App suggestions / autocomplete** | Suggestion chips appear as tappable elements with text and refs. Agent reads text, picks the right one. Verified with Messages recipient picker. |
+| **Disabled elements** | Rendered as `[disabled]` in snapshot. Agent can read them but knows not to interact. |
+| **Checked/selected/focused state** | Rendered as `[checked]`, `[selected]`, `[focused]`. Agent sees toggle states, active tabs, focused fields without extra queries. |
+| **Scrollable content detection** | Scrollable containers get refs. Agent calls `scroll(ref, 'down')` — library computes swipe within element bounds. No guessing coordinates. |
+| **Context menus** | `longPress(ref)` triggers long-press handlers. Menu appears in next snapshot. |
+| **Binary output corruption** | Screenshots use `exec-out` (raw stdout), not `shell` (which mangles `\r\n`). PNG bytes arrive intact. |
+| **Multi-device setups** | Every ADB call threads `-s serial`. `connect({device: 'emulator-5554'})` targets specific device. Default: auto-detect first available. |
+| **Screen unlock** | `press('power')` wakes screen, `swipe()` dismisses lock, `type()` enters PIN. Not automated yet but fully scriptable by agent. |
+
+### What still needs the agent's help
+
+| Gap | Why | Workaround |
+|-----|-----|------------|
+| **Login / auth** | App tokens live in hardware-bound Keystore or locked SharedPrefs. Can't extract. | Agent logs in via UI: tap fields, type credentials, tap sign-in. Works for any app. |
+| **WebView content** | uiautomator tree is empty/shallow inside WebViews. Flutter can crash it. | Roadmap Phase 5: CDP bridge for debug-enabled WebViews. |
+| **CAPTCHAs** | No programmatic bypass. | Agent + vision model, or avoid CAPTCHA-gated flows. |
+| **Multi-touch gestures** | `adb input` only supports single point. No pinch-to-zoom. | Roadmap Phase 6: `sendevent` for multi-touch. |
+| **Keyboard language switching** | Text input assumes ASCII-compatible keyboard. | Agent can switch keyboard via Settings if needed. |
+
 ## Known Limitations
 
 | Limitation | Detail |
