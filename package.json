@@ -1,0 +1,13 @@
+{
+  "name": "baremobile",
+  "version": "0.0.0",
+  "type": "module",
+  "description": "Vanilla JS library — ADB-direct Android control for autonomous agents",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "test": "node --test test/unit/*.test.js test/integration/*.test.js"
+  },
+  "license": "MIT"
+}
