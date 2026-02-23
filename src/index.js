@@ -1,6 +1,6 @@
 // Public API — connect(opts) → page object, snapshot(opts) one-shot
 
-import { listDevices, exec, shell, dumpXml } from './adb.js';
+import { listDevices, exec, shell, dumpXml, screenSize } from './adb.js';
 import { parseXml } from './xml.js';
 import { prune } from './prune.js';
 import { formatTree } from './aria.js';
@@ -72,6 +72,20 @@ export async function connect(opts = {}) {
 
     async longPress(ref) {
       await interact.longPress(ref, _refMap, adbOpts);
+    },
+
+    async tapXY(x, y) {
+      await interact.tapXY(x, y, adbOpts);
+    },
+
+    async tapGrid(cell) {
+      const size = await screenSize(adbOpts);
+      await interact.tapGrid(cell, size.width, size.height, adbOpts);
+    },
+
+    async grid() {
+      const size = await screenSize(adbOpts);
+      return interact.buildGrid(size.width, size.height);
     },
 
     async back() {

@@ -1,5 +1,9 @@
 // Zero-dep XML parser for uiautomator dump output (pure, no I/O)
 
+const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" };
+const ENTITY_RE = /&(?:amp|lt|gt|quot|apos);/g;
+function decodeEntities(s) { return s ? s.replace(ENTITY_RE, m => ENTITIES[m]) : s; }
+
 /**
  * Parse bounds string "[x1,y1][x2,y2]" → {x1, y1, x2, y2} or null.
  * @param {string} str
@@ -42,8 +46,8 @@ export function parseXml(xml) {
 
     const node = {
       class: attrs.class || '',
-      text: attrs.text || '',
-      contentDesc: attrs['content-desc'] || '',
+      text: decodeEntities(attrs.text || ''),
+      contentDesc: decodeEntities(attrs['content-desc'] || ''),
       resourceId: attrs['resource-id'] || '',
       bounds: parseBounds(attrs.bounds || ''),
       clickable: attrs.clickable === 'true',

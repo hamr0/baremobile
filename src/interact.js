@@ -32,6 +32,13 @@ export async function tap(ref, refMap, opts = {}) {
 }
 
 /**
+ * Tap by raw pixel coordinates (no ref needed).
+ */
+export async function tapXY(x, y, opts = {}) {
+  await shell(`input tap ${Math.round(x)} ${Math.round(y)}`, opts);
+}
+
+/**
  * Type text into a node by ref.
  * Skips focus tap if node is already focused.
  * opts.clear: select-all + delete before typing.
@@ -104,6 +111,46 @@ export async function scroll(ref, direction, refMap, opts = {}) {
   const v = vectors[direction];
   if (!v) throw new Error(`Unknown scroll direction: ${direction}. Use up/down/left/right`);
   await swipe(...v, 300, opts);
+}
+
+/**
+ * Build a labeled grid over screen dimensions.
+ * Columns A-J (10), rows auto-sized to roughly square cells.
+ * @param {number} width
+ * @param {number} height
+ * @returns {{cols: number, rows: number, cellW: number, cellH: number, resolve: (cell: string) => {x: number, y: number}, text: string}}
+ */
+export function buildGrid(width, height) {
+  const cols = 10;
+  const cellW = Math.floor(width / cols);
+  const rows = Math.round(height / cellW);
+  const cellH = Math.floor(height / rows);
+
+  function resolve(cell) {
+    const m = cell.match(/^([A-J])(\d+)$/i);
+    if (!m) throw new Error(`Invalid grid cell: ${cell}. Use A1-J${rows}`);
+    const col = m[1].toUpperCase().charCodeAt(0) - 65;
+    const row = parseInt(m[2], 10) - 1;
+    if (col < 0 || col >= cols) throw new Error(`Column out of range: ${m[1]}`);
+    if (row < 0 || row >= rows) throw new Error(`Row out of range: ${m[2]}. Max: ${rows}`);
+    return {
+      x: Math.round(col * cellW + cellW / 2),
+      y: Math.round(row * cellH + cellH / 2),
+    };
+  }
+
+  const colLabels = Array.from({ length: cols }, (_, i) => String.fromCharCode(65 + i));
+  const text = `Screen: ${width}×${height}\nGrid: ${cols} cols (${colLabels.join('')}) × ${rows} rows (1-${rows}), cell ${cellW}×${cellH}px`;
+
+  return { cols, rows, cellW, cellH, resolve, text };
+}
+
+/**
+ * Tap by grid cell label (e.g. "C5").
+ */
+export async function tapGrid(cell, width, height, opts = {}) {
+  const { x, y } = buildGrid(width, height).resolve(cell);
+  await shell(`input tap ${x} ${y}`, opts);
 }
 
 /**

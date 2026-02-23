@@ -74,6 +74,19 @@ describe('parseXml', () => {
     assert.strictEqual(parseXml('ERROR: could not get idle state'), null);
   });
 
+  it('decodes XML entities in text and content-desc', () => {
+    const xml = '<?xml version="1.0"?><hierarchy><node class="android.widget.TextView" text="Network &amp; internet" content-desc="Sound &amp; vibration" bounds="[0,0][100,50]" clickable="false" scrollable="false" enabled="true" checked="false" selected="false" focused="false" /></hierarchy>';
+    const root = parseXml(xml);
+    assert.strictEqual(root.text, 'Network & internet');
+    assert.strictEqual(root.contentDesc, 'Sound & vibration');
+  });
+
+  it('decodes all five XML entity types', () => {
+    const xml = '<?xml version="1.0"?><hierarchy><node class="android.widget.TextView" text="&lt;b&gt;A &amp; B&lt;/b&gt; &quot;C&quot; &apos;D&apos;" bounds="[0,0][100,50]" clickable="false" scrollable="false" enabled="true" checked="false" selected="false" focused="false" /></hierarchy>';
+    const root = parseXml(xml);
+    assert.strictEqual(root.text, '<b>A & B</b> "C" \'D\'');
+  });
+
   it('extracts all 12 attributes correctly', () => {
     const xml = '<?xml version="1.0"?><hierarchy><node class="android.widget.CheckBox" text="Agree" content-desc="terms" resource-id="com.app:id/cb" bounds="[5,5][50,50]" clickable="true" scrollable="true" enabled="true" checked="true" selected="true" focused="true" /></hierarchy>';
     const n = parseXml(xml);

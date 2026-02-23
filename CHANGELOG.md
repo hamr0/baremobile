@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.2.0
+
+Screenshot-based vision fallback, coordinate tapping, grid system, entity decoding fix.
+
+### New features
+- `page.tapXY(x, y)` — tap by raw pixel coordinates, no ref needed
+- `page.tapGrid(cell)` — tap by grid cell label (e.g. `"C5"`)
+- `page.grid()` — get labeled grid: 10 cols (A-J), auto-sized rows, with `resolve(cell)` and `text` summary
+- `screenSize()` in adb.js — get device screen dimensions via `wm size`
+
+### Bug fixes
+- XML entity decoding: `&amp;` `&lt;` `&gt;` `&quot;` `&apos;` now decoded at parse time. Snapshots show `Network & internet` instead of `Network &amp; internet`.
+
+### Tests
+- 48 tests (39 unit + 9 integration), up from 36
+- New: `test/unit/interact.test.js` (7) — buildGrid cell resolution, bounds, errors
+- New: xml entity decoding tests (2)
+- New: integration tests for grid, tapXY, tapGrid (3)
+
+### Docs
+- README: added device setup guide (USB debugging, WiFi, emulator)
+- Blueprint: added future features (waitForText, intent shortcuts, vision fallback)
+- Blueprint: added "Why not iPhone" section — WDA friction analysis, Android-only decision
+- Blueprint: added Android device setup prerequisites
+
+### Verified flows
+- Bluetooth toggle: Settings → Connected devices → Connection preferences → Bluetooth → toggle off → toggle on (transitional `[disabled]` state observed and documented)
+- Coordinate tap: `tapXY(540, 1200)` lands correctly on home screen
+- Grid tap: `tapGrid('E10')` resolves and lands correctly
+
 ## 0.1.0
 
 Core library — 6 modules, ~500 lines, zero dependencies, 36 tests.

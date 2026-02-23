@@ -30,6 +30,9 @@ describe('connect', { skip: !hasDevice && 'No ADB device available' }, () => {
     assert.ok(page);
     assert.strictEqual(typeof page.snapshot, 'function');
     assert.strictEqual(typeof page.tap, 'function');
+    assert.strictEqual(typeof page.tapXY, 'function');
+    assert.strictEqual(typeof page.tapGrid, 'function');
+    assert.strictEqual(typeof page.grid, 'function');
     assert.strictEqual(typeof page.type, 'function');
     assert.strictEqual(typeof page.press, 'function');
     assert.strictEqual(typeof page.swipe, 'function');
@@ -73,6 +76,33 @@ describe('connect', { skip: !hasDevice && 'No ADB device available' }, () => {
     assert.strictEqual(buf[1], 0x50); // P
     assert.strictEqual(buf[2], 0x4E); // N
     assert.strictEqual(buf[3], 0x47); // G
+  });
+
+  it('grid() returns grid with resolve function', async () => {
+    const g = await page.grid();
+    assert.ok(g.cols === 10);
+    assert.ok(g.rows > 0);
+    assert.ok(g.cellW > 0);
+    assert.ok(g.cellH > 0);
+    assert.ok(g.text.includes('Screen:'));
+    const center = g.resolve('A1');
+    assert.ok(center.x > 0 && center.y > 0);
+  });
+
+  it('tapXY() taps by coordinates', async () => {
+    await page.home();
+    await new Promise(r => setTimeout(r, 500));
+    await page.tapXY(540, 1200);
+    await new Promise(r => setTimeout(r, 300));
+    assert.ok(true);
+  });
+
+  it('tapGrid() taps by grid cell', async () => {
+    await page.home();
+    await new Promise(r => setTimeout(r, 500));
+    await page.tapGrid('E10');
+    await new Promise(r => setTimeout(r, 300));
+    assert.ok(true);
   });
 
   it('home() goes to home screen', async () => {

@@ -31,7 +31,7 @@ test/
     └── connect.test.js — End-to-end against emulator (6 tests)
 ```
 
-6 modules, ~500 lines, 36 tests (30 unit + 6 integration).
+6 modules, ~600 lines, 48 tests (39 unit + 9 integration).
 
 ## How it works
 
@@ -61,6 +61,7 @@ Thin wrapper around `child_process.execFile('adb', ...)`.
 | `shell(cmd, opts)` | Shortcut for `exec(['shell', cmd])` |
 | `listDevices()` | Parse `adb devices -l`, return `[{serial, state, type}]`. Filters to `state === 'device'`. |
 | `dumpXml(opts)` | `exec-out` with dump-to-file + cat pattern. 15s timeout. Returns XML string. |
+| `screenSize(opts)` | Parse `wm size` → `{width, height}` |
 
 Key details:
 - `exec-out` for binary-safe stdout (not `shell` which mangles line endings)
@@ -166,6 +167,9 @@ All interactions go through `adb shell input`. Every function takes `opts` last 
 | Export | Description |
 |--------|-------------|
 | `tap(ref, refMap, opts)` | Bounds center → `input tap X Y` |
+| `tapXY(x, y, opts)` | Tap by raw pixel coordinates (no ref needed) |
+| `tapGrid(cell, width, height, opts)` | Tap by grid cell label (e.g. "C5") |
+| `buildGrid(width, height)` | Build labeled grid: 10 cols (A-J), auto rows. Returns `{cols, rows, cellW, cellH, resolve, text}` |
 | `type(ref, text, refMap, opts)` | Focus tap + word-by-word input with KEYCODE_SPACE between words |
 | `press(key, opts)` | Key event by name or keycode number |
 | `swipe(x1, y1, x2, y2, duration, opts)` | Raw `input swipe` |
@@ -219,6 +223,9 @@ Page object:
 | `page.back()` | Press back button |
 | `page.home()` | Press home button |
 | `page.launch(pkg)` | `am start` with launcher intent |
+| `page.tapXY(x, y)` | Tap by pixel coordinates (vision fallback) |
+| `page.tapGrid(cell)` | Tap by grid cell label, e.g. `"C5"` |
+| `page.grid()` | Get grid object: `{cols, rows, cellW, cellH, resolve(cell), text}` |
 | `page.screenshot()` | `screencap -p` → PNG Buffer |
 | `page.close()` | No-op (ADB is stateless). Keeps API compatible with future daemon. |
 | `page.serial` | Resolved device serial string |
@@ -259,14 +266,15 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 
 ## Tests
 
-36 tests total (30 unit + 6 integration):
+48 tests total (39 unit + 9 integration):
 
 | Test file | Count | What |
 |-----------|-------|------|
-| `test/unit/xml.test.js` | 10 | parseBounds (3) + parseXml (7): single node, nested tree, self-closing, editable detection, empty/error input, all 12 attributes |
+| `test/unit/xml.test.js` | 12 | parseBounds (3) + parseXml (9): single node, nested tree, self-closing, editable detection, empty/error input, all 12 attributes, entity decoding |
 | `test/unit/prune.test.js` | 10 | Collapse wrappers, keep refs, drop empties, ref assignment, dedup, null root, contentDesc, states |
 | `test/unit/aria.test.js` | 10 | shortClass mappings (5) + formatTree (5): all fields, nesting, states, disabled, empty |
-| `test/integration/connect.test.js` | 6 | Page API, snapshot, launch, back, screenshot PNG, home |
+| `test/unit/interact.test.js` | 7 | buildGrid: column/row sizing, cell resolution (A1, J-max, case-insensitive), invalid/out-of-range errors, text output |
+| `test/integration/connect.test.js` | 9 | Page API, snapshot, launch, back, screenshot PNG, grid, tapXY, tapGrid, home |
 
 Run all:
 ```bash
@@ -292,6 +300,9 @@ Tested end-to-end on API 35 emulator, February 2024:
 | **Screenshot capture** | `screenshot()` anywhere | PNG buffer with correct magic bytes, visual confirmation of screen state |
 | **Home screen** | `home()` from any app | Returns to launcher, snapshot shows app grid + search bar |
 | **App switching** | `press('recent')` | Opens recent apps view |
+| **Toggle Bluetooth** | Settings → Connected devices → Connection preferences → Bluetooth → tap switch | Toggle OFF: switch disappears from tree, text changes. Toggle ON: goes through `[disabled]` transitional state, settles to `Switch [checked]` after ~2s. Full cycle verified. |
+| **Tap by coordinates** | `tapXY(540, 1200)` on home screen | Tap lands correctly at pixel coordinates without ref |
+| **Tap by grid cell** | `tapGrid('E10')` on home screen | Grid resolves cell to center coordinates, tap lands correctly |
 
 ### What the agent handles without help
 
@@ -311,6 +322,8 @@ Tested end-to-end on API 35 emulator, February 2024:
 | **Context menus** | `longPress(ref)` triggers long-press handlers. Menu appears in next snapshot. |
 | **Binary output corruption** | Screenshots use `exec-out` (raw stdout), not `shell` (which mangles `\r\n`). PNG bytes arrive intact. |
 | **Multi-device setups** | Every ADB call threads `-s serial`. `connect({device: 'emulator-5554'})` targets specific device. Default: auto-detect first available. |
+| **ARIA tree fails (vision fallback)** | `screenshot()` → agent sees screen visually → `tapXY(x, y)` or `tapGrid('C5')` by coordinates. Grid: 10 cols (A-J), auto-sized rows. Covers Flutter crashes, empty WebViews, obfuscated custom views. |
+| **XML entities in text** | uiautomator dump contains `&amp;`, `&lt;`, etc. Parser decodes all 5 XML entities at parse time. Snapshots show clean `Network & internet`, not `Network &amp; internet`. |
 | **Screen unlock** | `press('power')` wakes screen, `swipe()` dismisses lock, `type()` enters PIN. Not automated yet but fully scriptable by agent. |
 
 ### What still needs the agent's help
@@ -339,7 +352,17 @@ Tested end-to-end on API 35 emulator, February 2024:
 
 - Node.js >= 22
 - `adb` in PATH (from Android SDK platform-tools)
-- ADB-connected device or emulator (`adb devices` shows it)
+- Android device or emulator with USB debugging enabled
+
+### Android device setup (one-time)
+
+1. **Enable Developer Options** — Settings → About phone → tap "Build number" 7 times
+2. **Enable USB debugging** — Settings → Developer options → toggle "USB debugging" on
+3. **Connect** — USB cable, tap "Allow" on the debugging prompt on device
+4. **Verify** — `adb devices` shows your device as `device` (not `unauthorized`)
+
+WiFi debugging: `adb tcpip 5555` while USB-connected, then `adb connect <device-ip>:5555`.
+Emulators: no setup needed, `adb devices` shows them automatically. (`adb devices` shows it)
 
 ## Comparison with alternatives
 
@@ -467,6 +490,61 @@ Discovery: scan `/proc/*/cmdline` or `cat /proc/net/unix` for `webview_devtools_
 | dump-to-file + cat | `uiautomator dump /dev/tty` doesn't work on API 35+. Dump to temp file, cat it back via `exec-out`. |
 | `exec-out` not `shell` | `adb shell` mangles `\r\n` line endings. `exec-out` gives raw binary-safe stdout. |
 | Page object pattern | Same API shape as barebrowse's `connect()`. Agents learn one pattern, use it everywhere. |
+
+## Future Features Needed
+
+### Bugs / Quick Wins
+
+**HTML entity decoding in snapshots** — uiautomator dump XML contains `&amp;`, `&lt;`, etc. The parser doesn't decode these, so snapshots show `Network &amp; internet` instead of `Network & internet`. An agent searching for `"Network & internet"` by text match will fail. Fix in `xml.js` parseXml.
+
+### Core Improvements
+
+**`waitForText(text, timeout)`** — Poll snapshot until text appears or timeout. Essential for confirming async state changes (e.g. Bluetooth toggle goes through a `[disabled]` transitional state before settling). Without this, agents must sleep arbitrary durations and re-snapshot manually. Also useful for: app launch confirmation, dialog appearance, network state changes.
+
+**`waitForState(ref, state, timeout)`** — Wait for a specific element state (enabled, checked, unchecked, focused). Complements waitForText for cases where the text doesn't change but the state does.
+
+**Intent-based deep navigation** — `page.launch(pkg)` only opens the main activity. Android supports intent shortcuts like `am start -a android.settings.BLUETOOTH_SETTINGS` to jump directly into subsections. Add `page.intent(action, extras?)` or document common intent patterns in context.md so agents don't need 4 navigation steps to reach Bluetooth settings.
+
+**Screenshot as agent fallback** — When an agent fails to accomplish a task twice via ARIA tree (e.g. element not in tree, WebView, Flutter), automatically offer a screenshot with numbered grid overlay so the agent can tap by grid coordinate. Flow: `snapshot()` fails or action doesn't produce expected result → `screenshot({grid: true})` → agent sees the screen visually → `tapXY(x, y)` by grid reference → `screenshot()` to verify. This bridges gaps where the accessibility tree is incomplete or missing.
+
+### Platform Gaps to Document
+
+**Switch removal when unchecked** — Android sometimes removes unchecked Switch/Toggle elements from the accessibility tree entirely rather than showing `Switch [unchecked]`. Observed on Bluetooth settings page: when BT is off, the Switch element disappears and only `Text "Use Bluetooth"` remains. Agents need to know: "no switch present = off" rather than looking for `[unchecked]`. Add to context.md and agent integration guide.
+
+**Transitional disabled states** — System settings toggles go through a `[disabled]` state during async operations (observed: Bluetooth enabling). Agents should snapshot again after 1-2s when they see `[disabled]` on a toggle they just tapped. Document this pattern.
+
+### Screenshot as agent fallback (Android only)
+
+When ARIA tree fails (Flutter crash, empty WebView, obfuscated custom views), fall back to vision:
+
+1. `screenshot({grid: true})` — overlay numbered grid on screenshot
+2. Send to vision model — "What do you see? Which grid cell should I tap?"
+3. `tapXY(gridCellCenter)` → `screenshot()` → verify
+
+Trade-offs vs ARIA: slower (vision API per action), higher token cost (image vs ~200 text tokens), less precise (grid cell vs exact bounds), no semantic state. But covers the 5% of cases where uiautomator fails.
+
+### Why not iPhone
+
+Investigated and decided against iOS support. The platform doesn't allow it without unreasonable friction:
+
+**Android setup:** Enable USB debugging (one toggle). Done. Zero-install, zero-dep. Everything baremobile needs (`uiautomator dump`, `adb shell input`, `screencap`) is built into every Android device.
+
+**iOS setup for equivalent functionality:**
+1. Own a Mac (required — Xcode is macOS-only)
+2. Install Xcode (~25GB download)
+3. Create Apple Developer account
+4. Build and sideload WebDriverAgent (WDA) onto iPhone via Xcode
+5. On iPhone: Settings → General → Device Management → Trust the certificate
+6. **Free tier: re-sign WDA every 7 days** (certificate expires). Paid developer account ($99/year) for 1-year signing.
+7. WDA must be running on the iPhone for any automation to work
+
+**What WDA gives you once installed:** HTTP API on the device for screenshots, tap/swipe/type, and an accessibility tree (XCUITest elements). Basically what Android gives you for free out of the box.
+
+**Remote iOS is worse:** `idevicescreenshot` (libimobiledevice) works over USB only. Remote requires either WDA over network (still needs sideload), a cloud device farm (BrowserStack, Corellium — expensive), or `pymobiledevice3` network pairing (iOS 17+, flaky).
+
+**Bottom line:** Android is open by design — USB debugging exposes everything an agent needs. Apple locks it down by design — every automation path requires Mac + Xcode + sideload + certificate management. This isn't a technical problem we can solve. It's a platform policy. We'd be building a wrapper around WDA's friction, not eliminating it. Not worth it.
+
+If Apple ever opens up accessibility APIs or ADB-equivalent tooling, revisit. Until then, Android only.
 
 ## References
 

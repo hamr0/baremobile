@@ -57,6 +57,18 @@ export async function listDevices() {
 }
 
 /**
+ * Get screen dimensions via `wm size`.
+ * @param {{serial?: string}} [opts]
+ * @returns {Promise<{width: number, height: number}>}
+ */
+export async function screenSize(opts = {}) {
+  const out = await shell('wm size', opts);
+  const m = out.match(/(\d+)x(\d+)/);
+  if (!m) throw new Error('Failed to parse screen size: ' + out.trim());
+  return { width: +m[1], height: +m[2] };
+}
+
+/**
  * Dump UI hierarchy XML via uiautomator.
  * Uses dump-to-file + cat pattern (exec-out for binary-safe stdout).
  * @param {{serial?: string}} [opts]

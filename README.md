@@ -96,6 +96,9 @@ One-shot: dump + parse + prune + format. No session state.
 | `page.swipe(x1, y1, x2, y2, duration)` | Raw swipe between points |
 | `page.scroll(ref, direction)` | Scroll within element (up/down/left/right) |
 | `page.longPress(ref)` | Long press element |
+| `page.tapXY(x, y)` | Tap by pixel coordinates (vision fallback) |
+| `page.tapGrid(cell)` | Tap by grid cell, e.g. `"C5"` |
+| `page.grid()` | Get grid info: `{cols, rows, cellW, cellH, resolve, text}` |
 | `page.back()` | Press back button |
 | `page.home()` | Press home button |
 | `page.launch(pkg)` | Launch app by package name |
@@ -113,7 +116,7 @@ snapshot() → adb uiautomator dump → XML
 tap(ref)   → refMap lookup → bounds center → adb input tap X Y
 ```
 
-6 modules, ~500 lines, zero dependencies.
+6 modules, ~600 lines, zero dependencies.
 
 ## What it handles automatically
 
@@ -134,6 +137,8 @@ This is the obstacle course your agent doesn't have to think about:
 | **Multi-device setups** | Every ADB call threads `-s serial`. `connect({device: 'emulator-5554'})` targets a specific device. Default: auto-detect first available. |
 | **Binary output corruption** | Screenshots use `exec-out` (raw stdout) not `shell` (which mangles `\r\n`). PNG bytes arrive intact. |
 | **Disabled/checked/focused states** | Rendered in snapshot as `[disabled]`, `[checked]`, `[focused]`, `[selected]`. Agent sees widget state without extra API calls. |
+| **ARIA tree fails (vision fallback)** | `screenshot()` → send to vision model → `tapXY(x, y)` or `tapGrid('C5')`. Grid: 10 cols (A-J), auto-sized rows for roughly square cells. Covers Flutter crashes, empty WebViews, obfuscated views. |
+| **XML entities in text** | uiautomator dumps `&amp;`, `&lt;` etc. Parser decodes at parse time. Snapshots show clean `Network & internet`. |
 | **Sending messages** | Full multi-step flow verified: open Messages → start chat → type recipient → tap suggestion → type message → tap "Send SMS". End-to-end on emulator. |
 | **Emoji insertion** | Tap emoji button → panel opens with tappable emojis (each `View [ref=N]` with name in contentDesc) → tap → inserted into TextInput. Agent picks emojis by name. |
 | **File attachment** | Tap attach → Files → system file picker opens → navigate folders → tap file → attached. Agent navigates the picker like any other screen. |
@@ -149,11 +154,24 @@ This is the obstacle course your agent doesn't have to think about:
 | **Screen unlock** | uiautomator needs unlocked screen. | `press('power')` to wake, `swipe()` to dismiss, `type()` for PIN. Automatable. |
 | **Multi-touch / pinch** | `adb input` only supports single-point gestures. | Roadmap: `sendevent` for multi-touch (Phase 6). |
 
-## Requirements
+## Device setup
+
+### Android (one-time)
+
+1. **Enable Developer Options** — Settings → About phone → tap "Build number" 7 times
+2. **Enable USB debugging** — Settings → Developer options → toggle "USB debugging" on
+3. **Connect device** — plug in USB cable, tap "Allow" on the USB debugging prompt
+4. **Verify** — run `adb devices`, your device should show as `device` (not `unauthorized`)
+
+For WiFi debugging (no cable): `adb tcpip 5555` while connected via USB, then `adb connect <device-ip>:5555`.
+
+For emulators: no setup needed. `adb devices` shows them automatically.
+
+### Requirements
 
 - Node.js >= 22
-- `adb` in PATH
-- ADB-connected Android device or emulator
+- `adb` in PATH (from [Android SDK platform-tools](https://developer.android.com/tools/releases/platform-tools))
+- Android device or emulator with USB debugging enabled
 
 ## Coming soon
 
