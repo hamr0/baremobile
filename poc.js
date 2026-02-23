@@ -17,12 +17,14 @@ async function adb(...args) {
 }
 
 async function dumpXml() {
-  // dump to /dev/tty returns XML to stdout (avoids file I/O on device)
-  const { stdout } = await exec('adb', ['shell', 'uiautomator', 'dump', '/dev/tty'], {
-    timeout: 10_000,
+  const dumpPath = '/data/local/tmp/ui.xml';
+  // dump to file on device, then cat back — /dev/tty doesn't work on API 35+
+  // Combine into single shell command to avoid exit-code issues with adb shell
+  const { stdout } = await exec('adb', ['exec-out',
+    `uiautomator dump ${dumpPath} >/dev/null 2>&1; cat ${dumpPath}`], {
+    timeout: 15_000,
     maxBuffer: 4 * 1024 * 1024,
   });
-  // uiautomator prefixes with "UI hierchary dumped to: /dev/tty" sometimes
   const xmlStart = stdout.indexOf('<?xml');
   if (xmlStart === -1) throw new Error('No XML in uiautomator output:\n' + stdout.slice(0, 200));
   return stdout.slice(xmlStart);
@@ -223,11 +225,17 @@ async function type(refMap, ref, text) {
   if (!node) throw new Error(`No node with ref=${ref}`);
   const { x, y } = boundsCenter(node.bounds);
   console.log(`Typing into ref=${ref} at (${x}, ${y}) — "${text}"`);
-  // Tap to focus
+  // Tap to focus, wait for UI to settle
   await adb('input', 'tap', String(x), String(y));
-  // Shell-escape: replace spaces with %s, special chars
-  const escaped = text.replace(/ /g, '%s').replace(/[&|;$`"'\\<>()]/g, c => '\\' + c);
-  await adb('input', 'text', escaped);
+  await new Promise(r => setTimeout(r, 500));
+  // Type word-by-word, inject KEYCODE_SPACE (62) between words
+  // %s trick doesn't work on API 35+
+  const words = text.split(' ');
+  for (let i = 0; i < words.length; i++) {
+    if (i > 0) await adb('input', 'keyevent', '62'); // SPACE
+    const escaped = words[i].replace(/[&|;$`"'\\<>()]/g, c => '\\' + c);
+    if (escaped) await adb('input', 'text', escaped);
+  }
   console.log('OK');
 }
 
