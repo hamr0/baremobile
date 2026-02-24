@@ -33,7 +33,7 @@ test/
     └── connect.test.js — End-to-end against emulator (6 tests)
 ```
 
-8 modules, ~800 lines, 83 tests (71 unit + 12 integration).
+8 modules, ~800 lines, 94 tests (78 unit + 16 integration).
 
 ## How it works
 
@@ -268,17 +268,17 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 
 ## Tests
 
-83 tests total (71 unit + 12 integration):
+94 tests total (78 unit + 16 integration):
 
 | Test file | Count | What |
 |-----------|-------|------|
 | `test/unit/xml.test.js` | 12 | parseBounds (3) + parseXml (9): single node, nested tree, self-closing, editable detection, empty/error input, all 12 attributes, entity decoding |
 | `test/unit/prune.test.js` | 10 | Collapse wrappers, keep refs, drop empties, ref assignment, dedup, null root, contentDesc, states |
 | `test/unit/aria.test.js` | 10 | shortClass mappings (5) + formatTree (5): all fields, nesting, states, disabled, empty |
-| `test/unit/interact.test.js` | 7 | buildGrid: column/row sizing, cell resolution (A1, J-max, case-insensitive), invalid/out-of-range errors, text output |
+| `test/unit/interact.test.js` | 14 | buildGrid (7): column/row sizing, cell resolution, errors, text. Error handling (7): press/tap/scroll/type/longPress validation |
 | `test/unit/termux.test.js` | 14 | isTermux detection, findLocalDevices parsing, adbPair/adbConnect command construction, resolveTermuxDevice error messages, localhost parsing with mixed device types |
 | `test/unit/termux-api.test.js` | 18 | Module exports (16 functions), isAvailable detection, ENOENT errors for all 15 API functions on non-Termux systems |
-| `test/integration/connect.test.js` | 12 | Page API, snapshot, launch, back, screenshot PNG, grid, tapXY, tapGrid, intent, waitForText, home |
+| `test/integration/connect.test.js` | 16 | Page API, snapshot, launch, back, screenshot, grid, tapXY, tapGrid, intent, waitForText (2), tap by ref, type into field, scroll, swipe, home |
 
 Run all:
 ```bash
@@ -289,7 +289,7 @@ Integration tests auto-skip when no ADB device is available.
 
 ## Verified Flows
 
-Tested end-to-end on API 35 emulator, February 2024:
+Tested end-to-end on API 35 emulator, February 2025:
 
 | Flow | Steps | Result |
 |------|-------|--------|

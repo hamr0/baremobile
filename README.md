@@ -103,12 +103,22 @@ One-shot: dump + parse + prune + format. No session state.
 | `page.home()` | Press home button |
 | `page.launch(pkg)` | Launch app by package name |
 | `page.screenshot()` | Screen capture → PNG Buffer |
+| `page.intent(action, extras?)` | Deep navigation via Android intent |
+| `page.waitForText(text, timeout)` | Poll snapshot until text appears |
+| `page.waitForState(ref, state, timeout)` | Poll for element state (checked, enabled, focused...) |
 | `page.close()` | End session |
+
+### Connect options
+
+| Option | Default | Description |
+|--------|---------|-------------|
+| `device` | `'auto'` | Device serial string, or `'auto'` for first available |
+| `termux` | `false` | Set `true` to use localhost ADB (for Termux on-device use) |
 
 ## How it works
 
 ```
-connect() → resolve device serial
+connect() → resolve device serial (USB, WiFi, or Termux localhost)
 snapshot() → adb uiautomator dump → XML
            → regex XML parser → node tree
            → 4-step pruning pipeline → pruned tree + refMap
@@ -116,7 +126,7 @@ snapshot() → adb uiautomator dump → XML
 tap(ref)   → refMap lookup → bounds center → adb input tap X Y
 ```
 
-6 modules, ~600 lines, zero dependencies.
+8 modules, ~800 lines, zero dependencies.
 
 ## What it handles automatically
 
@@ -172,6 +182,56 @@ For emulators: no setup needed. `adb devices` shows them automatically.
 - Node.js >= 22
 - `adb` in PATH (from [Android SDK platform-tools](https://developer.android.com/tools/releases/platform-tools))
 - Android device or emulator with USB debugging enabled
+
+## Termux (on-device control)
+
+baremobile can run inside Termux on the phone itself — no USB, no host machine needed.
+
+### Termux + ADB (full screen control)
+```bash
+# In Termux:
+pkg install android-tools nodejs-lts
+# Enable Wireless Debugging in Developer Options, pair + connect:
+adb pair localhost:PORT CODE
+adb connect localhost:PORT
+```
+```js
+import { connect } from 'baremobile';
+const page = await connect({ termux: true });  // auto-detects Termux env
+```
+
+### Termux:API (direct Android APIs, no ADB)
+```bash
+pkg install termux-api  # also install Termux:API addon app from F-Droid
+```
+```js
+import * as api from 'baremobile/src/termux-api.js';
+await api.smsSend('5551234', 'Hello!');      // send SMS
+const battery = await api.batteryStatus();    // {percentage, status, ...}
+await api.call('5551234');                    // make a call
+const loc = await api.location();             // GPS coordinates
+await api.clipboardSet('copied');             // set clipboard
+```
+
+16 functions: smsSend, smsList, call, location, cameraPhoto, clipboardGet/Set, contactList, notify, batteryStatus, volumeGet/Set, wifiInfo, torch, vibrate, isAvailable.
+
+## Requirements
+
+### ADB mode (from host machine)
+- Node.js >= 22
+- `adb` in PATH ([Android SDK platform-tools](https://developer.android.com/tools/releases/platform-tools))
+- Android device/emulator with USB debugging enabled
+
+### Termux + ADB mode (on-device)
+- Android 11+ (wireless debugging support)
+- [Termux](https://f-droid.org/packages/com.termux/) from F-Droid
+- `pkg install android-tools nodejs-lts` in Termux
+- Wireless debugging enabled in Developer Options (must re-enable after reboot)
+
+### Termux:API mode (on-device, no ADB)
+- [Termux](https://f-droid.org/packages/com.termux/) from F-Droid
+- [Termux:API](https://f-droid.org/packages/com.termux.api/) addon from F-Droid
+- `pkg install termux-api nodejs-lts` in Termux
 
 ## Coming soon
 

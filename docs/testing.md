@@ -1,6 +1,6 @@
 # Testing Guide
 
-> 83 tests, 6 test files, zero test dependencies.
+> 94 tests, 6 test files, zero test dependencies.
 
 ## Run all tests
 
@@ -17,11 +17,11 @@ Integration tests auto-skip when no ADB device is available.
           │  E2E    │  Manual verified flows (Bluetooth toggle,
           │  (0)    │  SMS send, emoji, file attach — see blueprint)
           ├─────────┤
-          │ Integr. │  12 tests — real device, full pipeline
-          │  (12)   │  connect → snapshot → tap → screenshot
+          │ Integr. │  16 tests — real device, full pipeline
+          │  (16)   │  connect → snapshot → tap → type → scroll → swipe
           ├─────────┤
-          │  Unit   │  71 tests — pure functions, no device needed
-          │  (71)   │  xml, prune, aria, interact, termux, termux-api
+          │  Unit   │  78 tests — pure functions, no device needed
+          │  (78)   │  xml, prune, aria, interact, termux, termux-api
           └─────────┘
 ```
 
@@ -29,22 +29,22 @@ Integration tests auto-skip when no ADB device is available.
 
 ## Test files
 
-### Unit tests (71 tests, no device needed)
+### Unit tests (78 tests, no device needed)
 
 | File | Tests | What it covers |
 |------|-------|----------------|
 | `test/unit/xml.test.js` | 12 | `parseBounds` (3): standard, empty, malformed. `parseXml` (9): single node, nested tree, self-closing, editable detection, empty/error input, all 12 attributes, XML entity decoding (`&amp;` → `&`), all 5 entity types |
 | `test/unit/prune.test.js` | 10 | Collapse single-child wrappers, keep ref nodes, drop empty leaves, ref assignment on interactive nodes, dedup same-text siblings, skip dedup on ref nodes, refMap returned, null root, contentDesc kept, state-bearing nodes kept |
 | `test/unit/aria.test.js` | 10 | `shortClass` (5): core widgets, layouts→Group, AppCompat/Material, unknown→last segment, empty→View. `formatTree` (5): all fields + ref + states, nesting/indentation, disabled, multiple states, empty node |
-| `test/unit/interact.test.js` | 7 | `buildGrid`: column/row auto-sizing, A1→top-left center, J-max→bottom-right, case-insensitive resolve, invalid cell format error, out-of-range row error, text includes dimensions |
+| `test/unit/interact.test.js` | 14 | `buildGrid` (7): column/row auto-sizing, A1→top-left center, J-max→bottom-right, case-insensitive, invalid cell, out-of-range, text. Error handling (7): press unknown key, tap missing ref, tap no bounds, scroll unknown direction, scroll missing ref, type missing ref, longPress missing ref |
 | `test/unit/termux.test.js` | 14 | `isTermux` (2): env var detection, path fallback. `findLocalDevices` (2): live adb + empty array. `adbPair`/`adbConnect` (2): command construction (no usage errors). `resolveTermuxDevice` (1): error message content. Parsing logic (7): typical output, non-localhost, offline, multiple devices, empty, mixed types, extra whitespace |
 | `test/unit/termux-api.test.js` | 18 | Module exports (2): all 16 functions present, count exact. `isAvailable` (1): returns false on non-Termux. ENOENT errors (15): all API functions throw correctly when commands not found |
 
-### Integration tests (12 tests, requires ADB device)
+### Integration tests (16 tests, requires ADB device)
 
 | File | Tests | What it covers |
 |------|-------|----------------|
-| `test/integration/connect.test.js` | 12 | Page object has all methods, `snapshot()` returns YAML with refs, `launch()` opens Settings, `press('back')` navigates, `screenshot()` returns valid PNG, `grid()` returns resolve function, `tapXY()` taps coordinates, `tapGrid()` taps by cell, `intent()` deep navigation, `waitForText()` resolves + timeout, `home()` returns to launcher |
+| `test/integration/connect.test.js` | 16 | Page object methods (1), snapshot YAML with refs (1), launch app (1), press back (1), screenshot PNG (1), grid resolve (1), tapXY (1), tapGrid (1), intent deep nav (1), waitForText resolve + timeout (2), tap by ref (1), type into search (1), scroll within element (1), raw swipe (1), home (1) |
 
 ### Termux validation status
 
