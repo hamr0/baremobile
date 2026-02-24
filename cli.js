@@ -11,6 +11,19 @@ import { join } from 'node:path';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
+const jsonMode = hasFlag('--json');
+
+/** Write a single JSON line to stdout. */
+function jsonOut(obj) {
+  process.stdout.write(JSON.stringify(obj) + '\n');
+}
+
+/** Write an error — JSON line or stderr depending on mode. */
+function errOut(msg, exitCode = 1) {
+  if (jsonMode) jsonOut({ ok: false, error: msg });
+  else process.stderr.write(`Error: ${msg}\n`);
+  process.exit(exitCode);
+}
 
 // Hidden internal flag: --daemon-internal
 if (args.includes('--daemon-internal')) {
@@ -80,8 +93,7 @@ async function cmdOpen() {
 
   // Check for existing session
   if (await isAlive(outputDir)) {
-    process.stdout.write('Session already running. Use `baremobile close` first.\n');
-    process.exit(1);
+    errOut('Session already running. Use `baremobile close` first.');
   }
 
   const opts = {
@@ -90,11 +102,14 @@ async function cmdOpen() {
 
   try {
     const session = await startDaemon(opts, outputDir);
-    process.stdout.write(`Session started (pid ${session.pid}, port ${session.port})\n`);
-    process.stdout.write(`Output dir: ${outputDir}\n`);
+    if (jsonMode) {
+      jsonOut({ ok: true, pid: session.pid, port: session.port, outputDir });
+    } else {
+      process.stdout.write(`Session started (pid ${session.pid}, port ${session.port})\n`);
+      process.stdout.write(`Output dir: ${outputDir}\n`);
+    }
   } catch (err) {
-    process.stderr.write(`Error: ${err.message}\n`);
-    process.exit(1);
+    errOut(err.message);
   }
 }
 
@@ -104,16 +119,18 @@ async function cmdStatus() {
   const session = readSession(outputDir);
 
   if (!session) {
-    process.stdout.write('No session found.\n');
-    process.exit(1);
+    errOut('No session found.');
   }
 
   const alive = await isAlive(outputDir);
   if (alive) {
-    process.stdout.write(`Session running (pid ${session.pid}, port ${session.port}, started ${session.startedAt})\n`);
+    if (jsonMode) {
+      jsonOut({ ok: true, pid: session.pid, port: session.port, startedAt: session.startedAt });
+    } else {
+      process.stdout.write(`Session running (pid ${session.pid}, port ${session.port}, started ${session.startedAt})\n`);
+    }
   } else {
-    process.stdout.write(`Session stale (pid ${session.pid} not responding). Run \`baremobile close\` to clean up.\n`);
-    process.exit(1);
+    errOut(`Session stale (pid ${session.pid} not responding). Run \`baremobile close\` to clean up.`);
   }
 }
 
@@ -125,17 +142,25 @@ async function cmdProxy(command, cmdArgs) {
     const result = await sendCommand(command, cmdArgs, outputDir);
 
     if (!result.ok) {
-      process.stderr.write(`Error: ${result.error}\n`);
-      process.exit(1);
+      errOut(result.error);
     }
 
-    // Print result
+    if (jsonMode) {
+      // Pass through daemon JSON directly
+      if (command === 'close') {
+        const sessionPath = join(outputDir, 'session.json');
+        try { unlinkSync(sessionPath); } catch { /* already gone */ }
+      }
+      jsonOut(result);
+      return;
+    }
+
+    // Human-readable output
     if (result.file) {
       process.stdout.write(`${result.file}\n`);
     } else if (result.value !== undefined) {
       process.stdout.write(JSON.stringify(result.value) + '\n');
     } else if (command === 'close') {
-      // Clean up session.json in case daemon didn't
       const sessionPath = join(outputDir, 'session.json');
       try { unlinkSync(sessionPath); } catch { /* already gone */ }
       process.stdout.write('Session closed.\n');
@@ -144,13 +169,12 @@ async function cmdProxy(command, cmdArgs) {
     }
   } catch (err) {
     if (command === 'close') {
-      // Daemon may have exited before responding — that's fine
       const sessionPath = join(outputDir, 'session.json');
       try { unlinkSync(sessionPath); } catch { /* already gone */ }
-      process.stdout.write('Session closed.\n');
+      if (jsonMode) jsonOut({ ok: true });
+      else process.stdout.write('Session closed.\n');
     } else {
-      process.stderr.write(`Error: ${err.message}\n`);
-      process.exit(1);
+      errOut(err.message);
     }
   }
 }
@@ -219,5 +243,8 @@ Logging:
 
 MCP:
   baremobile mcp                       Start MCP server (JSON-RPC over stdio)
+
+Options:
+  --json                               Output JSON lines (for agent consumption)
 `);
 }
