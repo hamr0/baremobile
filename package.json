@@ -11,7 +11,9 @@
     "node": ">=22"
   },
   "scripts": {
-    "test": "node --test test/unit/*.test.js test/integration/*.test.js"
+    "test": "node --test test/unit/*.test.js test/integration/*.test.js",
+    "test:ios": "node --test test/ios/*.test.js",
+    "ios:check": "node test/ios/check-prerequisites.js"
   },
   "keywords": [
     "android",

@@ -265,7 +265,7 @@ await api.clipboardSet('copied');             // set clipboard
 
 ## Coming soon
 
-MCP server, CLI session mode, bareagent adapter, WebView CDP bridge. See [docs/blueprint.md](docs/blueprint.md) for the full roadmap.
+MCP server, CLI session mode, bareagent adapter, WebView CDP bridge. See [docs/01-product/prd.md](docs/01-product/prd.md) for the full roadmap.
 
 ## License
 

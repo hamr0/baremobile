@@ -27,9 +27,15 @@ Integration tests auto-skip when no ADB device is available.
 
 **Unit tests** run everywhere (CI, no device). **Integration tests** need an emulator or device. **E2E flows** are manually verified and documented in the blueprint obstacle course — they test multi-step agent scenarios that are too slow/flaky for automated runs.
 
-## Test files
+---
 
-### Unit tests (78 tests, no device needed)
+## Test suites by module
+
+### Core ADB
+
+Covers: XML parsing, tree pruning, YAML formatting, interaction primitives, screen control.
+
+**Unit tests (46 tests, no device needed):**
 
 | File | Tests | What it covers |
 |------|-------|----------------|
@@ -37,38 +43,90 @@ Integration tests auto-skip when no ADB device is available.
 | `test/unit/prune.test.js` | 10 | Collapse single-child wrappers, keep ref nodes, drop empty leaves, ref assignment on interactive nodes, dedup same-text siblings, skip dedup on ref nodes, refMap returned, null root, contentDesc kept, state-bearing nodes kept |
 | `test/unit/aria.test.js` | 10 | `shortClass` (5): core widgets, layouts→Group, AppCompat/Material, unknown→last segment, empty→View. `formatTree` (5): all fields + ref + states, nesting/indentation, disabled, multiple states, empty node |
 | `test/unit/interact.test.js` | 14 | `buildGrid` (7): column/row auto-sizing, A1→top-left center, J-max→bottom-right, case-insensitive, invalid cell, out-of-range, text. Error handling (7): press unknown key, tap missing ref, tap no bounds, scroll unknown direction, scroll missing ref, type missing ref, longPress missing ref |
-| `test/unit/termux.test.js` | 14 | `isTermux` (2): env var detection, path fallback. `findLocalDevices` (2): live adb + empty array. `adbPair`/`adbConnect` (2): command construction (no usage errors). `resolveTermuxDevice` (1): error message content. Parsing logic (7): typical output, non-localhost, offline, multiple devices, empty, mixed types, extra whitespace |
-| `test/unit/termux-api.test.js` | 18 | Module exports (2): all 16 functions present, count exact. `isAvailable` (1): returns false on non-Termux. ENOENT errors (15): all API functions throw correctly when commands not found |
 
-### Integration tests (16 tests, requires ADB device)
+**Integration tests (16 tests, requires ADB device):**
 
 | File | Tests | What it covers |
 |------|-------|----------------|
 | `test/integration/connect.test.js` | 16 | Page object methods (1), snapshot YAML with refs (1), launch app (1), press back (1), screenshot PNG (1), grid resolve (1), tapXY (1), tapGrid (1), intent deep nav (1), waitForText resolve + timeout (2), tap by ref (1), type into search (1), scroll within element (1), raw swipe (1), home (1) |
 
-### Termux validation status
+**Manually verified E2E flows:**
 
-| Layer | Tested | How | Result |
-|-------|--------|-----|--------|
-| **Termux ADB** (`termux.js`) | Yes (emulator) | POC: `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → `connect({termux: true})` → snapshot + tap + launch | All work through localhost ADB |
-| **Termux:API** (`termux-api.js`) | Yes (emulator) | Sideloaded Termux + Termux:API, installed Node v24.13.0 in Termux, ran `execFile` + `JSON.parse` test | batteryStatus, clipboardGet/Set, volume, wifiInfo, vibrate — all pass from Node.js inside Termux |
+| Flow | Steps |
+|------|-------|
+| Open app + read screen | launch Settings → snapshot → verify text |
+| Search by typing | Settings → tap search → type "wifi" → verify results |
+| Navigate back/home | press back, press home → verify screen change |
+| Scroll long lists | Settings → scroll down → verify new items |
+| Send SMS | Messages → new chat → recipient → compose → send |
+| Insert emoji | Compose → emoji panel → tap emoji → verify in input |
+| File attachment | Compose → + → Files → picker → select file |
+| Dismiss dialogs | Dialog appears → read text → tap OK |
+| Toggle Bluetooth | Settings → Connected devices → Connection preferences → Bluetooth → toggle off/on |
+| Screenshot capture | screenshot() → verify PNG magic bytes |
+| Tap by coordinates | tapXY(540, 1200) on home screen |
+| Tap by grid cell | tapGrid('E10') → resolves + taps correctly |
 
-**Validated on emulator (API 35):**
+---
+
+### Termux ADB
+
+Covers: Termux environment detection, localhost ADB device discovery, pairing/connect helpers.
+
+**Unit tests (14 tests, no device needed):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/unit/termux.test.js` | 14 | `isTermux` (2): env var detection, path fallback. `findLocalDevices` (2): live adb + empty array. `adbPair`/`adbConnect` (2): command construction (no usage errors). `resolveTermuxDevice` (1): error message content. Parsing logic (7): typical output, non-localhost, offline, multiple devices, empty, mixed types, extra whitespace |
+
+**POC validation (emulator):**
+
+| Flow | Steps | Result |
+|------|-------|--------|
+| Localhost ADB connection | `adb tcpip` → `adb forward` → `adb connect localhost:PORT` | Device detected |
+| Snapshot via localhost | `snapshot()` through localhost ADB | Same YAML as USB ADB |
+| Launch + tap + home | `launch(settings)` → `tap(ref)` → `home()` | All work through localhost |
+
+All Core ADB integration tests apply identically (same `adb.js`, different serial).
+
+---
+
+### Termux:API
+
+Covers: 16 Termux:API command wrappers, availability detection.
+
+**Unit tests (18 tests, no device needed):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/unit/termux-api.test.js` | 18 | Module exports (2): all 16 functions present, count exact. `isAvailable` (1): returns false on non-Termux. ENOENT errors (15): all API functions throw correctly when commands not found |
+
+**POC validation (emulator with sideloaded Termux + Termux:API):**
+
+Validated on API 35 emulator with:
 - Sideloaded `com.termux_1022.apk` + `com.termux.api_1002.apk` from F-Droid
 - `pkg install termux-api nodejs-lts` inside Termux (Node v24.13.0)
-- POC 1 (bash): raw `termux-*` CLI commands — battery, clipboard, volume, wifi, vibrate — all return correct JSON
-- POC 2 (Node.js): `execFile('termux-battery-status')` + `JSON.parse` inside Termux — validates our exact `termux-api.js` pattern works end-to-end
 
-**Not yet validated (needs real device):**
-- `smsSend` / `smsList` — requires SIM card
-- `call` — requires SIM card
-- `location` — requires GPS hardware
-- `cameraPhoto` — requires camera hardware
-- `contactList` — requires contacts on device
+| Command | Bash POC | Node.js POC |
+|---------|----------|-------------|
+| batteryStatus | PASS — JSON | PASS — execFile + JSON.parse |
+| clipboardGet/Set | PASS | PASS |
+| volumeGet | PASS — 6 streams | PASS |
+| wifiInfo | PASS — JSON | PASS |
+| vibrate | PASS | PASS |
 
-**To validate remaining commands on a real device:**
+**Not yet validated (needs real device with SIM + GPS):**
+
+| Command | Why |
+|---------|-----|
+| `smsSend` / `smsList` | Requires SIM card |
+| `call` | Requires SIM card |
+| `location` | Requires GPS hardware |
+| `cameraPhoto` | Requires camera hardware |
+| `contactList` | Requires contacts on device |
+
 ```bash
-# In Termux on phone:
+# To validate on a real device (inside Termux):
 termux-sms-send -n 5551234 "test"
 termux-sms-list -l 3
 termux-telephony-call 5551234
@@ -77,27 +135,26 @@ termux-camera-photo /sdcard/test.jpg
 termux-contact-list
 ```
 
-### Manually verified E2E flows (documented in blueprint)
+---
 
-These were tested end-to-end on API 35 emulator and are too stateful/slow for automated tests:
+### iOS (planned)
 
-| Flow | Module | Steps |
-|------|--------|-------|
-| Open app + read screen | Core ADB | launch Settings → snapshot → verify text |
-| Search by typing | Core ADB | Settings → tap search → type "wifi" → verify results |
-| Navigate back/home | Core ADB | press back, press home → verify screen change |
-| Scroll long lists | Core ADB | Settings → scroll down → verify new items |
-| Send SMS | Core ADB | Messages → new chat → recipient → compose → send |
-| Insert emoji | Core ADB | Compose → emoji panel → tap emoji → verify in input |
-| File attachment | Core ADB | Compose → + → Files → picker → select file |
-| Dismiss dialogs | Core ADB | Dialog appears → read text → tap OK |
-| Toggle Bluetooth | Core ADB | Settings → Connected devices → Connection preferences → Bluetooth → toggle off/on |
-| Screenshot capture | Core ADB | screenshot() → verify PNG magic bytes |
-| Tap by coordinates | Core ADB | tapXY(540, 1200) on home screen |
-| Tap by grid cell | Core ADB | tapGrid('E10') → resolves + taps correctly |
-| Termux ADB (POC) | Termux ADB | tcpip → forward → connect localhost → snapshot → launch Settings → tap → home |
-| Termux:API (bash POC) | Termux:API | Sideload Termux + Termux:API → battery, clipboard, volume, wifi, vibrate — all JSON |
-| Termux:API (Node POC) | Termux:API | Node v24.13.0 in Termux → execFile + JSON.parse → battery, clipboard, volume, wifi, vibrate — validates termux-api.js pattern |
+Not yet built. Test structure planned:
+
+```
+test/ios/
+  check-prerequisites.js   # validate python, pymobiledevice3, usbmuxd, device
+  screenshot.test.js        # spike: detect device, lockdown info, screenshot
+```
+
+```bash
+npm run ios:check    # validate prerequisites + iPhone connection
+npm run test:ios     # iOS spike tests (requires iPhone)
+```
+
+See [dev-setup.md](dev-setup.md#ios-researchspike--not-yet-built) for iOS prerequisites and setup.
+
+---
 
 ## Writing new tests
 
