@@ -23,6 +23,17 @@ It uses ADB directly -- `adb` on PATH, device connected, done. No Appium. No Jav
 
 Same patterns as [barebrowse](https://www.npmjs.com/package/barebrowse). Agents learn one API, use it for web and mobile.
 
+### Modules
+
+| Module | Platform | Use case | What it does | Requirements |
+|--------|----------|----------|-------------|--------------|
+| **Core ADB** | Android | QA, automation | Full screen control — snapshots, tap/type/swipe, screenshots, app lifecycle | `adb` + USB debugging |
+| **Termux ADB** | Android | QA, autonomous agents | Same screen control, runs on the phone itself — no host machine | Termux + wireless debugging |
+| **Termux:API** | Android | QA, autonomous agents | Direct Android APIs — SMS, calls, GPS, camera, clipboard, contacts | Termux + Termux:API app |
+| **iOS** | iPhone | QA | Screenshots + BLE keyboard/mouse. Vision-based, no accessibility tree. | USB + Bluetooth + Python 3.12 |
+
+See [docs/customer-guide.md](docs/customer-guide.md) for detailed setup and usage of each module.
+
 ## Install
 
 ```

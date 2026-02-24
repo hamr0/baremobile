@@ -42,6 +42,11 @@ Reserved for feature-specific deep dives as complexity grows.
 |------|------|
 | [poc-plan.md](archive/poc-plan.md) | Original POC validation criteria (completed, POC deleted) |
 
+### Guides
+| File | What |
+|------|------|
+| [customer-guide.md](customer-guide.md) | Module overview, choosing the right module, setup and quick start for each |
+
 ## Root-level docs
 | File | What |
 |------|------|
