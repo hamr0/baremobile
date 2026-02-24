@@ -582,9 +582,15 @@ Proved Linux → iPhone control via pymobiledevice3 over USB. 8/8 tests passing.
 Prove that Linux can send taps and keystrokes to iPhone via Bluetooth.
 
 1. **BLE HID keyboard — PROVEN** — Linux (BlueZ) presents as BLE keyboard → pair with iPhone → type text into any app. Tested: `send_string hello` → text appears in Notes.
-2. **BLE HID mouse — ADDED, testing next** — enable AssistiveTouch → Linux sends cursor movements + clicks → tap at coordinates
-3. **Switch Control** — BLE keyboard keys mapped as switches → full UI navigation without coordinates
-4. **Integration test** — screenshot → decide where to tap → BLE mouse click → verify result
+2. **BLE HID combo (keyboard+mouse) — PROVEN** — Both Report 1 (KB) and Report 2 (Mouse) subscribe simultaneously. Fixed two bugs that caused keyboard to drop when mouse connected:
+   - LED Output Report Reference had Report ID 0 instead of 1 (must match keyboard collection)
+   - Advertisement Appearance was `0x03C1` (Keyboard) — changed to `0x03C0` (Generic HID) for combo device
+3. **BLE HID mouse — PROVEN** — AssistiveTouch enabled, cursor movement + click confirmed. Directional control (left/right/up/down) and tap at cursor position both work.
+   - Must send rapid small-step reports (STEP=10 units, 8ms interval) — iOS clamps single-report movement
+   - Relative movement only — for absolute positioning, home cursor to corner first then move to target
+4. **iOS hides software keyboard** when BLE keyboard connected — expected behavior, benefits automation (more screen visible in screenshots)
+5. **Integration test — PROVEN** — Full loop: screenshot (pymobiledevice3) → BLE mouse tap → screenshot → BLE keyboard type → screenshot. 6/6 tests passing in ~40s. Settings → Wi-Fi navigation + search bar typing verified.
+6. **Switch Control** — BLE keyboard keys mapped as switches → full UI navigation without coordinates
 
 #### Technical approach
 
@@ -593,6 +599,20 @@ BlueZ D-Bus GATT server implementing HID over GATT Profile (HOGP):
 - **Report Map** — combined keyboard + mouse descriptor (keys, modifiers, buttons, X/Y relative movement)
 - **Device Information Service** (UUID `0x180A`) — manufacturer, model, PnP ID
 - **Battery Service** (UUID `0x180F`) — iOS expects this for HID devices
+
+#### Critical requirements discovered
+
+| Requirement | Why |
+|-------------|-----|
+| `ControllerMode = le` in BlueZ config | LE-only prevents duplicate Classic BT entry on iPhone |
+| `DisablePlugins = input` in BlueZ config | Prevents BlueZ from claiming HID as local input |
+| `KeyboardDisplay` agent capability | iOS requires authenticated pairing (MITM) for HID — `NoInputNoOutput` = silently refused |
+| `secure-read` on Report Map + Report Reference | iOS requires encrypted reads for HID characteristics |
+| LED Output Report in Report Map | iOS expects to write Caps Lock/Num Lock status |
+| LED Report Reference ID must match keyboard collection | Report ID 0 caused iOS to drop keyboard when mouse connected |
+| Appearance `0x03C0` (Generic HID) for combo | `0x03C1` (Keyboard-only) caused iOS to re-enumerate on mouse reports |
+| `Discoverable = False` | Only LE advertisement, not Classic BT discovery |
+| Software keyboard hides when BLE keyboard connected | iOS behavior by design — benefits automation (more screen visible) |
 
 ```
 Linux (BlueZ D-Bus)              iPhone

@@ -417,7 +417,7 @@ class OutputReportChrc(Characteristic):
     def __init__(self, bus, index, service):
         Characteristic.__init__(self, bus, index, self.UUID,
                                 ['secure-read', 'write', 'write-without-response'], service)
-        self.add_descriptor(ReportReferenceDesc(bus, 0, self, 0, report_type=2))  # type=2 = Output
+        self.add_descriptor(ReportReferenceDesc(bus, 0, self, 1, report_type=2))  # type=2 = Output, Report ID 1 (keyboard)
         self.value = dbus.Array([dbus.Byte(0)], signature='y')
 
     def WriteValue(self, value, options):
@@ -490,7 +490,7 @@ class Advertisement(dbus.service.Object):
             'Type': 'peripheral',
             'LocalName': dbus.String('baremobile'),
             'ServiceUUIDs': dbus.Array([HIDService.UUID], signature='s'),
-            'Appearance': dbus.UInt16(0x03C1),  # Keyboard
+            'Appearance': dbus.UInt16(0x03C0),  # Generic HID (combo keyboard+mouse)
             'Includes': dbus.Array(['tx-power'], signature='s'),
         }
 
@@ -525,10 +525,24 @@ def send_string(hid_service, text):
 
 
 def move_mouse(hid_service, dx, dy):
-    dx = max(-127, min(127, dx))
-    dy = max(-127, min(127, dy))
-    hid_service.mouse_report.send_report([0x00, dx & 0xFF, dy & 0xFF, 0x00])
-    GLib.timeout_add(50, lambda: hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
+    """Move mouse by sending rapid small-step reports (like a real mouse sensor).
+    iOS clamps single-report movement — must send many small deltas at high frequency."""
+    STEP = 10  # units per report — small enough for iOS to accept full magnitude
+    INTERVAL = 8  # ms between reports (~125Hz, matches real mouse polling rate)
+    steps = max(abs(dx), abs(dy), 1) // STEP or 1
+    sx = dx / steps if steps else 0
+    sy = dy / steps if steps else 0
+    for i in range(steps):
+        step_dx = int(round(sx))
+        step_dy = int(round(sy))
+        step_dx = max(-127, min(127, step_dx))
+        step_dy = max(-127, min(127, step_dy))
+        GLib.timeout_add(i * INTERVAL, lambda sdx=step_dx, sdy=step_dy:
+                         hid_service.mouse_report.send_report(
+                             [0x00, sdx & 0xFF, sdy & 0xFF, 0x00]) or False)
+    # Zero report after last step
+    GLib.timeout_add(steps * INTERVAL, lambda:
+                     hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
 
 
 def click(hid_service):

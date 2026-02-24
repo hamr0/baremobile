@@ -184,10 +184,13 @@ Agent → baremobile-ios → BlueZ BLE HID → Bluetooth → iPhone (input)
 
 Spike order:
 1. ~~Get pymobiledevice3 taking screenshots over WiFi from Linux~~ **Done (USB) — Phase 2.7**
-2. ~~Get BlueZ presenting as BLE HID keyboard, pair with iPhone~~ **Done (Phase 2.8) — keyboard proven, mouse added**
-3. Enable Switch Control, send navigation commands via BLE
-4. Combine: screenshot → vision → decide action → BLE HID input
-5. If screen-only vision is too slow, evaluate adding WDA later
+2. ~~Get BlueZ presenting as BLE HID keyboard, pair with iPhone~~ **Done (Phase 2.8) — keyboard proven**
+3. ~~Get keyboard+mouse combo working simultaneously~~ **Done (Phase 2.8) — both reports subscribe, fixed Report ID + Appearance bugs**
+4. ~~Test BLE HID mouse with AssistiveTouch — cursor movement + click → tap at coordinates~~ **Done (Phase 2.8) — mouse proven**
+5. ~~Combine: screenshot → BLE tap → screenshot → BLE type → verify~~ **Done (Phase 2.8) — integration test 6/6 passing**
+6. Enable Switch Control, send navigation commands via BLE
+7. Combine: screenshot → vision → decide action → BLE HID input
+8. If screen-only vision is too slow, evaluate adding WDA later
 
 ---
 
@@ -327,16 +330,40 @@ This is enough for **vision-based automation**: screenshot → send to LLM → g
 - Faster automation loops (no LLM needed for element location)
 - XPath/predicate queries for robust selectors
 
-### Next Spike: BLE HID Input (Phase 2.8 — IN PROGRESS)
+### BLE HID Input Spike (Phase 2.8 — IN PROGRESS)
 
 The critical missing piece. Proves that a Linux machine can send taps and keystrokes to an iPhone via Bluetooth — no app install, no jailbreak, no cable.
 
 Spike goals:
-1. Linux presents as BLE HID keyboard → pair with iPhone → type text
-2. Linux presents as BLE HID mouse → enable AssistiveTouch → tap coordinates
-3. Combine with screenshot: capture screen → decide where to tap → BLE tap → capture result
+1. ~~Linux presents as BLE HID keyboard → pair with iPhone → type text~~ **PROVEN**
+2. ~~Keyboard+mouse combo — both reports subscribe simultaneously~~ **PROVEN** (fixed Report ID + Appearance bugs)
+3. ~~Linux presents as BLE HID mouse → enable AssistiveTouch → tap coordinates~~ **PROVEN**
+4. Combine with screenshot: capture screen → decide where to tap → BLE tap → capture result
 
 If BLE HID works, Architecture C is complete and we have a fully functional iOS automation path from Linux.
+
+#### Bugs fixed during spike
+
+| Bug | Root Cause | Fix |
+|-----|-----------|-----|
+| Two "baremobile" entries on iPhone | Classic BT + LE both advertising | `ControllerMode = le` |
+| `notifying=False` despite connection | `NoInputNoOutput` = unauthenticated | `KeyboardDisplay` agent |
+| iOS reads HID Info but not Report Map | Insufficient security level | `secure-read` on Report Map + Report Reference |
+| Keyboard drops when mouse connects | LED Output Report Reference had Report ID 0 (should be 1) | Fixed to match keyboard collection |
+| Keyboard drops when mouse connects | Appearance `0x03C1` (Keyboard) confused iOS on mouse reports | Changed to `0x03C0` (Generic HID) |
+| iOS software keyboard hidden | Expected behavior — BLE hardware keyboard connected | Not a bug. Benefits automation (more screen visible in screenshots) |
+| Mouse moves tiny amount | iOS clamps single-report movement magnitude | Send rapid small-step reports (10 units/report, 8ms intervals) like a real mouse sensor |
+
+#### iOS BLE HID behaviors observed
+
+- iOS hides software keyboard when any BLE keyboard is connected (by design)
+- Software keyboard reappears immediately on BLE disconnect
+- iOS reads all Report Reference descriptors on connect to map Report IDs to collections
+- iOS writes LED Output Report (Caps Lock status) on keyboard subscribe
+- iOS reads Battery Level on initial connect
+- Mouse requires rapid small-step reports (10 units, 8ms interval) — iOS clamps single-report magnitude
+- Relative mouse movement only — for absolute screen positioning, home to corner first then move to target
+- AssistiveTouch cursor + click = finger tap at cursor position — confirmed working
 
 ### BLE HID Pre-Spike Findings
 
