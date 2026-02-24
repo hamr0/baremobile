@@ -682,7 +682,35 @@ Tools: BlueZ 5.56+, GATT server with HID Service (UUID 0x1812). Existing project
 
 ### Phase 2.9: iOS — baremobile-ios module (TODO)
 
-Wrap pymobiledevice3 + BLE HID into a JS module matching baremobile's API pattern. All underlying capabilities proven in Phase 2.7–2.8.
+Three sub-phases: unified setup script → live speed test → JS module build. All underlying capabilities proven in Phase 2.7–2.8.
+
+#### 2.9.1: Unified setup script
+
+`./scripts/ios-tunnel.sh` — single command that starts both the USB tunnel (pymobiledevice3 lockdown) and the BLE HID GATT server. Replaces the current two-terminal workflow.
+
+```bash
+./scripts/ios-tunnel.sh          # starts tunnel + BLE HID, writes PID files
+./scripts/ios-tunnel.sh stop     # tears down both
+```
+
+Writes RSD address to `/tmp/ios-rsd-address` (existing convention). BLE HID server runs as background process. Prerequisites checked on startup (Python versions, BlueZ config, iPhone connected).
+
+#### 2.9.2: Live speed test
+
+`scripts/ios-live-test.js` — interactive test session that measures real-world latency for each operation with a live iPhone. Validates speed and robustness before building the module.
+
+| Measurement | Target | Why |
+|-------------|--------|-----|
+| Screenshot | <1.5s | Currently ~2.5s — test with persistent connection |
+| BLE tap at coordinates | <500ms | Currently ~1-2s — test with pre-connected HID |
+| BLE type string | <100ms/char | Currently ~200ms/char — test burst mode |
+| Screenshot → tap → screenshot loop | <5s | Full agent cycle time budget |
+
+Strategy: persistent pymobiledevice3 connections (avoid per-call tunnel setup), pre-connected BLE HID (skip pairing overhead), cursor position tracking (avoid full-screen traversal for mouse moves).
+
+#### 2.9.3: JS module (`src/ios.js`)
+
+Wrap pymobiledevice3 + BLE HID into a JS module matching baremobile's API pattern.
 
 ```js
 import { connect } from 'baremobile/ios';
@@ -693,7 +721,15 @@ await page.launch('com.apple.Preferences');  // pymobiledevice3 dvt launch
 await page.tapXY(200, 400);            // BLE HID mouse click
 await page.type('hello');              // BLE HID keyboard
 await page.press('home');              // BLE HID key
+page.close();                          // tear down connections
 ```
+
+**API surface:** `connect()` → page object with `screenshot()`, `launch(bundleId)`, `kill(bundleId)`, `tapXY(x, y)`, `type(text)`, `press(key)`, `close()`. No `snapshot()` — iOS is vision-based.
+
+**Speed strategy:**
+- Persistent pymobiledevice3 connection — reuse tunnel across calls instead of spawning per command
+- Persistent BLE HID connection — keep GATT server running, track cursor position
+- Screenshot-first mapping — agent screenshots → vision model → coordinates → BLE tap
 
 **Key difference from Android:** No `page.snapshot()` with accessibility tree. iOS control is vision-based — screenshot → send to LLM → get coordinates → tap. Agent needs a vision model in the loop.
 

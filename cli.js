@@ -45,6 +45,27 @@ if (args.includes('--daemon-internal')) {
   await cmdProxy('back');
 } else if (cmd === 'home') {
   await cmdProxy('home');
+} else if (cmd === 'tap-xy' && args[1] && args[2]) {
+  await cmdProxy('tap-xy', { x: Number(args[1]), y: Number(args[2]) });
+} else if (cmd === 'tap-grid' && args[1]) {
+  await cmdProxy('tap-grid', { cell: args[1] });
+} else if (cmd === 'intent' && args[1]) {
+  const extras = {};
+  for (let i = 2; i < args.length; i++) {
+    if (args[i] === '--extra-string' && args[i + 1]) {
+      const [k, ...rest] = args[++i].split('=');
+      extras[k] = rest.join('=');
+    }
+  }
+  await cmdProxy('intent', { action: args[1], extras });
+} else if (cmd === 'wait-text' && args[1]) {
+  await cmdProxy('wait-text', { text: args[1], timeout: parseFlag('--timeout') });
+} else if (cmd === 'wait-state' && args[1] && args[2]) {
+  await cmdProxy('wait-state', { ref: args[1], state: args[2], timeout: parseFlag('--timeout') });
+} else if (cmd === 'grid') {
+  await cmdProxy('grid');
+} else if (cmd === 'logcat') {
+  await cmdProxy('logcat', { filter: parseFlag('--filter'), clear: hasFlag('--clear') });
 } else {
   printUsage();
 }
@@ -173,17 +194,28 @@ Session:
 Screen:
   baremobile snapshot                  ARIA snapshot -> .baremobile/screen-*.yml
   baremobile screenshot                Screenshot -> .baremobile/screenshot-*.png
+  baremobile grid                      Screen grid info (for vision fallback)
 
 Interaction:
   baremobile tap <ref>                 Tap element
+  baremobile tap-xy <x> <y>           Tap by pixel coordinates
+  baremobile tap-grid <cell>          Tap by grid cell (e.g. C5)
   baremobile type <ref> <text>         Type text (--clear to replace)
   baremobile press <key>               Press key (back, home, enter, ...)
   baremobile scroll <ref> <direction>  Scroll (up/down/left/right)
   baremobile swipe <x1> <y1> <x2> <y2> [--duration=N]
   baremobile long-press <ref>          Long-press element
   baremobile launch <pkg>              Launch app by package name
+  baremobile intent <action> [--extra-string key=val ...]
   baremobile back                      Press Android back button
   baremobile home                      Press Android home button
+
+Waiting:
+  baremobile wait-text <text> [--timeout=N]
+  baremobile wait-state <ref> <state> [--timeout=N]
+
+Logging:
+  baremobile logcat [--filter=TAG] [--clear]
 
 MCP:
   baremobile mcp                       Start MCP server (JSON-RPC over stdio)

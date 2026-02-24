@@ -227,7 +227,24 @@ await page.launch('com.google.android.apps.maps');
 
 **Who it's for:** QA teams wanting iPhone control from Linux — no Mac, no Xcode, no app installed on the phone.
 
-**Status:** Screenshots, app lifecycle, BLE keyboard, BLE mouse — all proven (Phase 2.7–2.8). Integration 6/6 passing.
+**Status:** Screenshots, app lifecycle, BLE keyboard, BLE mouse — all proven (Phase 2.7–2.8). Integration 6/6 passing. JS module coming in Phase 2.9.
+
+### Coming next (Phase 2.9)
+
+A unified setup script (`./scripts/ios-tunnel.sh`) replaces the current two-terminal workflow — one command starts both the USB tunnel and BLE HID server. Then a JS module (`src/ios.js`) wrapping everything into a clean API:
+
+```js
+import { connect } from 'baremobile/ios';
+
+const page = await connect();            // auto-detect iPhone
+const png = await page.screenshot();     // pymobiledevice3
+await page.launch('com.apple.Preferences');
+await page.tapXY(200, 400);             // BLE HID mouse
+await page.type('hello');               // BLE HID keyboard
+page.close();
+```
+
+API: `screenshot()`, `launch(bundleId)`, `kill(bundleId)`, `tapXY(x, y)`, `type(text)`, `press(key)`, `close()`. No `snapshot()` — iOS is vision-based (screenshot → LLM → coordinates → tap).
 
 ### Architecture
 
@@ -314,6 +331,55 @@ npm run test:ios
 
 ---
 
+## CLI Session Mode
+
+All modules can also be driven from the command line via `npx baremobile`. The CLI starts a background daemon that holds an ADB session — same as the library, but controlled via shell commands.
+
+### Quick start
+
+```bash
+npx baremobile open                         # start daemon
+npx baremobile launch com.android.settings  # open Settings
+sleep 2
+npx baremobile snapshot                     # prints .baremobile/screen-*.yml
+npx baremobile tap 4                        # tap element
+npx baremobile logcat                       # prints .baremobile/logcat-*.json
+npx baremobile close                        # shut down
+```
+
+### Full command reference
+
+| Category | Command | Description |
+|----------|---------|-------------|
+| Session | `open [--device=SERIAL]` | Start daemon |
+| | `close` | Shut down daemon |
+| | `status` | Check if session is alive |
+| Screen | `snapshot` | ARIA snapshot → `.baremobile/screen-*.yml` |
+| | `screenshot` | PNG → `.baremobile/screenshot-*.png` |
+| | `grid` | Screen grid info (for vision fallback) |
+| Interaction | `tap <ref>` | Tap element by ref |
+| | `tap-xy <x> <y>` | Tap by pixel coordinates |
+| | `tap-grid <cell>` | Tap by grid cell (e.g. C5) |
+| | `type <ref> <text> [--clear]` | Type text into field |
+| | `press <key>` | Press key (back, home, enter, ...) |
+| | `scroll <ref> <direction>` | Scroll (up/down/left/right) |
+| | `swipe <x1> <y1> <x2> <y2> [--duration=N]` | Raw swipe |
+| | `long-press <ref>` | Long press element |
+| | `launch <pkg>` | Launch app by package name |
+| | `intent <action> [--extra-string key=val ...]` | Deep navigation |
+| | `back` | Press Android back |
+| | `home` | Press Android home |
+| Waiting | `wait-text <text> [--timeout=N]` | Poll until text appears |
+| | `wait-state <ref> <state> [--timeout=N]` | Poll until state matches |
+| Logging | `logcat [--filter=TAG] [--clear]` | Dump logcat → `.baremobile/logcat-*.json` |
+| MCP | `mcp` | Start MCP server (JSON-RPC over stdio) |
+
+### Output conventions
+
+All output goes to `.baremobile/` in the current directory. Action commands print `ok` to stdout. File-producing commands print the file path. Errors go to stderr with non-zero exit code.
+
+---
+
 ## Choosing the Right Module
 
 ### "I want to automate Android UI testing from my laptop"
@@ -326,7 +392,7 @@ npm run test:ios
 → **Termux:API.** No screen control needed, direct API access.
 
 ### "I want to test iOS apps from Linux"
-→ **iOS module.** Screenshots + BLE keyboard/mouse proven. JS module wrapping it coming in Phase 2.9.
+→ **iOS module.** Screenshots + BLE keyboard/mouse proven. Phase 2.9 delivers: unified setup script (one command to start tunnel + BLE), live speed validation, then a JS module (`src/ios.js`) with `connect() → page` API — `screenshot()`, `launch()`, `tapXY()`, `type()`, `press()`.
 
 ### "I want cross-platform test suites"
 → Core ADB for Android + iOS module for iPhone. Same agent, different devices.

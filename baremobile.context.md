@@ -384,6 +384,67 @@ Action tools return `'ok'` — call `snapshot` to observe the result. This match
 ### Output artifacts
 Large snapshots saved to `.baremobile/screen-{timestamp}.yml` when exceeding `maxChars` (default 30,000).
 
+## CLI Session Mode
+
+baremobile includes a CLI for session-based control — start a daemon, issue commands, inspect output files. Useful for shell scripting, Claude Code integration, and JSONL-consumable automation.
+
+### Session lifecycle
+```bash
+baremobile open [--device=SERIAL]    # start daemon, writes session.json
+baremobile status                    # check if session is alive
+baremobile close                     # shut down daemon, clean up
+```
+
+### Commands
+```bash
+# Screen
+baremobile snapshot                  # -> .baremobile/screen-*.yml
+baremobile screenshot                # -> .baremobile/screenshot-*.png
+baremobile grid                      # screen grid info (for vision fallback)
+
+# Interaction
+baremobile tap <ref>                 # tap element by ref
+baremobile tap-xy <x> <y>          # tap by pixel coordinates
+baremobile tap-grid <cell>         # tap by grid cell (e.g. C5)
+baremobile type <ref> <text> [--clear]
+baremobile press <key>              # back, home, enter, ...
+baremobile scroll <ref> <direction> # up/down/left/right
+baremobile swipe <x1> <y1> <x2> <y2> [--duration=N]
+baremobile long-press <ref>
+baremobile launch <pkg>
+baremobile intent <action> [--extra-string key=val ...]
+baremobile back
+baremobile home
+
+# Waiting
+baremobile wait-text <text> [--timeout=N]
+baremobile wait-state <ref> <state> [--timeout=N]
+
+# Logging
+baremobile logcat [--filter=TAG] [--clear]
+```
+
+### Output conventions
+All output goes to `.baremobile/` in the current directory:
+- `session.json` — daemon port + pid
+- `screen-TIMESTAMP.yml` — snapshots
+- `screenshot-TIMESTAMP.png` — screenshots
+- `logcat-TIMESTAMP.json` — logcat entries
+
+### Agent usage
+```bash
+# Start session, take snapshot, act, observe
+baremobile open
+baremobile launch com.android.settings
+sleep 2
+baremobile snapshot    # prints file path to stdout
+baremobile tap 4
+baremobile snapshot
+baremobile close
+```
+
+Action commands print `ok` on success. File-producing commands print the file path. Errors go to stderr with non-zero exit.
+
 ## Error Recovery
 
 If an action doesn't seem to work:

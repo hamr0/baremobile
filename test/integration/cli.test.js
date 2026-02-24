@@ -93,9 +93,27 @@ describe('CLI session (integration)', () => {
     assert.ok(stat.length > 1000, 'screenshot should be a real image');
   });
 
+  it('logcat creates a .json file', () => {
+    const out = cli(['logcat'], { cwd: tmpDir });
+    assert.ok(out.endsWith('.json'), `expected .json path, got: ${out}`);
+    assert.ok(existsSync(out), 'logcat file should exist');
+    const entries = JSON.parse(readFileSync(out, 'utf8'));
+    assert.ok(Array.isArray(entries), 'logcat should be an array');
+  });
+
   it('close shuts down the daemon', () => {
     const out = cli(['close'], { cwd: tmpDir });
     assert.ok(out.includes('Session closed'), `expected closed, got: ${out}`);
     assert.ok(!existsSync(join(sessionDir, 'session.json')), 'session.json should be removed');
+  });
+
+  it('status after close exits non-zero', () => {
+    let threw = false;
+    try {
+      cli(['status'], { cwd: tmpDir });
+    } catch {
+      threw = true;
+    }
+    assert.ok(threw, 'status should exit with non-zero after close');
   });
 });

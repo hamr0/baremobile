@@ -1,6 +1,6 @@
 # Testing Guide
 
-> 109 tests, 7 test files, zero test dependencies.
+> 119 tests, 8 test files, zero test dependencies.
 
 ## Run all tests
 
@@ -17,8 +17,8 @@ Integration tests auto-skip when no ADB device is available.
           │  E2E    │  Manual verified flows (Bluetooth toggle,
           │  (0)    │  SMS send, emoji, file attach — see blueprint)
           ├─────────┤
-          │ Integr. │  16 tests — real device, full pipeline
-          │  (16)   │  connect → snapshot → tap → type → scroll → swipe
+          │ Integr. │  26 tests — real device, full pipeline
+          │  (26)   │  connect (16) + CLI session (10)
           ├─────────┤
           │  Unit   │  93 tests — pure functions, no device needed
           │  (93)   │  xml, prune, aria, interact, termux, termux-api, mcp
@@ -49,6 +49,12 @@ Covers: XML parsing, tree pruning, YAML formatting, interaction primitives, scre
 | File | Tests | What it covers |
 |------|-------|----------------|
 | `test/integration/connect.test.js` | 16 | Page object methods (1), snapshot YAML with refs (1), launch app (1), press back (1), screenshot PNG (1), grid resolve (1), tapXY (1), tapGrid (1), intent deep nav (1), waitForText resolve + timeout (2), tap by ref (1), type into search (1), scroll within element (1), raw swipe (1), home (1) |
+
+**CLI session tests (10 tests, requires ADB device):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/integration/cli.test.js` | 10 | open (daemon start + session.json) (1), status (running session) (1), snapshot (.yml file) (1), launch + snapshot (Settings content) (1), tap (ref from snapshot) (1), back (1), screenshot (.png file) (1), logcat (.json file) (1), close (cleanup) (1), status after close (non-zero exit) (1) |
 
 **Manually verified E2E flows:**
 
@@ -200,6 +206,13 @@ test/ios/
   ble-hid.test.js          # BLE HID: adapter, keyboard, mouse, combo (6 tests)
   integration.test.js      # Integration: screenshot + BLE tap + type + verify (6 tests)
 ```
+
+**Upcoming (Phase 2.9):**
+
+| File | Purpose |
+|------|---------|
+| `scripts/ios-live-test.js` | Live speed test — measures screenshot, BLE tap, type latency with real iPhone |
+| `test/ios/ios-connect.test.js` | Integration tests for `src/ios.js` module — connect, screenshot, launch, tapXY, type |
 
 See [dev-setup.md](dev-setup.md#ios) for iOS prerequisites and setup.
 

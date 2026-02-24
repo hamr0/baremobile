@@ -33,9 +33,22 @@ npm install baremobile
 
 Requires Node.js >= 22 and `adb` in PATH (from [Android SDK platform-tools](https://developer.android.com/tools/releases/platform-tools)).
 
-## Three ways to use it
+## Four ways to use it
 
-### 1. MCP server -- for Claude Desktop, Cursor, and other MCP clients
+### 1. CLI session -- for shell scripting and Claude Code
+
+```bash
+npx baremobile open                  # start daemon
+npx baremobile launch com.android.settings
+npx baremobile snapshot              # -> .baremobile/screen-*.yml
+npx baremobile tap 4                 # tap element
+npx baremobile logcat                # -> .baremobile/logcat-*.json
+npx baremobile close                 # shut down
+```
+
+Full command set: `open`, `close`, `status`, `snapshot`, `screenshot`, `tap`, `tap-xy`, `tap-grid`, `type`, `press`, `scroll`, `swipe`, `long-press`, `launch`, `intent`, `back`, `home`, `wait-text`, `wait-state`, `grid`, `logcat`.
+
+### 2. MCP server -- for Claude Desktop, Cursor, and other MCP clients
 
 **Claude Code:**
 ```bash
@@ -56,13 +69,13 @@ claude mcp add baremobile -- npx baremobile mcp
 
 10 tools: `snapshot`, `tap`, `type`, `press`, `scroll`, `swipe`, `long_press`, `launch`, `screenshot`, `back`.
 
-### 2. Library -- for agentic automation
+### 3. Library -- for agentic automation
 
 Import baremobile in your agent code. Connect to a device, take snapshots, tap/type/swipe by ref. Works with any LLM orchestration library. Ships with a ready-made adapter for [bareagent](https://www.npmjs.com/package/bare-agent).
 
 For code examples, API reference, and wiring instructions, see **[baremobile.context.md](baremobile.context.md)** -- the full integration guide.
 
-### 3. On-device via Termux -- no host machine needed
+### 4. On-device via Termux -- no host machine needed
 
 Same screen control, running on the phone itself via wireless debugging. Plus direct device APIs (SMS, calls, GPS, camera, clipboard) through Termux:API -- no screen, no ADB needed.
 

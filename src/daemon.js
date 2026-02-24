@@ -64,6 +64,24 @@ export async function runDaemon(opts, outputDir) {
     device: opts.device,
   });
 
+  // Logcat capture
+  const logcatEntries = [];
+  let logcatChild = null;
+  try {
+    const logcatArgs = ['-s', page.serial, 'logcat', '-v', 'time'];
+    logcatChild = spawn('adb', logcatArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
+    let partial = '';
+    logcatChild.stdout.on('data', (chunk) => {
+      partial += chunk.toString();
+      const lines = partial.split('\n');
+      partial = lines.pop(); // keep incomplete last line
+      for (const line of lines) {
+        if (line.trim()) logcatEntries.push(line);
+      }
+    });
+    logcatChild.on('error', () => { /* adb not found or device gone — ignore */ });
+  } catch { /* logcat optional — don't block daemon */ }
+
   // Command handlers
   const handlers = {
     async snapshot() {
@@ -127,7 +145,59 @@ export async function runDaemon(opts, outputDir) {
       return { ok: true };
     },
 
+    async 'tap-xy'({ x, y }) {
+      await page.tapXY(Number(x), Number(y));
+      return { ok: true };
+    },
+
+    async 'tap-grid'({ cell }) {
+      await page.tapGrid(cell);
+      return { ok: true };
+    },
+
+    async intent({ action, extras }) {
+      await page.intent(action, extras || {});
+      return { ok: true };
+    },
+
+    async 'wait-text'({ text, timeout }) {
+      const snap = await page.waitForText(text, timeout ? Number(timeout) : undefined);
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = join(absDir, `screen-${ts}.yml`);
+      writeFileSync(file, snap);
+      return { ok: true, file };
+    },
+
+    async 'wait-state'({ ref, state, timeout }) {
+      const snap = await page.waitForState(ref, state, timeout ? Number(timeout) : undefined);
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = join(absDir, `screen-${ts}.yml`);
+      writeFileSync(file, snap);
+      return { ok: true, file };
+    },
+
+    async grid() {
+      const g = await page.grid();
+      return { ok: true, value: g };
+    },
+
+    async logcat({ filter, clear } = {}) {
+      let entries = logcatEntries;
+      if (filter) {
+        entries = entries.filter(line => line.includes(filter));
+      }
+      const ts = new Date().toISOString().replace(/[:.]/g, '-');
+      const file = join(absDir, `logcat-${ts}.json`);
+      writeFileSync(file, JSON.stringify(entries, null, 2));
+      const count = entries.length;
+      if (clear) {
+        logcatEntries.length = 0;
+      }
+      return { ok: true, file, count };
+    },
+
     async close() {
+      if (logcatChild) { try { logcatChild.kill(); } catch { /* already dead */ } }
       page.close();
       const sessionPath = join(absDir, SESSION_FILE);
       if (existsSync(sessionPath)) unlinkSync(sessionPath);
@@ -205,6 +275,7 @@ export async function runDaemon(opts, outputDir) {
 
   // Handle SIGTERM gracefully
   process.on('SIGTERM', () => {
+    if (logcatChild) { try { logcatChild.kill(); } catch { /* already dead */ } }
     page.close();
     if (existsSync(sessionPath)) unlinkSync(sessionPath);
     server.close();
