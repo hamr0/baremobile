@@ -183,11 +183,160 @@ Agent → baremobile-ios → BlueZ BLE HID → Bluetooth → iPhone (input)
 - Mirrors baremobile's approach: external control, accessibility-based navigation
 
 Spike order:
-1. Get pymobiledevice3 taking screenshots over WiFi from Linux
+1. ~~Get pymobiledevice3 taking screenshots over WiFi from Linux~~ **Done (USB)**
 2. Get BlueZ presenting as BLE HID keyboard, pair with iPhone
 3. Enable Switch Control, send navigation commands via BLE
 4. Combine: screenshot → vision → decide action → BLE HID input
 5. If screen-only vision is too slow, evaluate adding WDA later
+
+---
+
+## 5. POC Results — pymobiledevice3 Spike
+
+### What We Proved
+
+Tested on Fedora 43, Python 3.12, pymobiledevice3 7.7.2, iPhone 13 mini (build 23D127).
+
+| Capability | Status | Notes |
+|-----------|--------|-------|
+| Device detection | **Working** | Via usbmux — returns model, iOS version, UDID |
+| Device info | **Working** | Full lockdown dump — CPU arch, WiFi MAC, serial, carrier |
+| Developer Mode | **Working** | `reveal-developer-mode` makes toggle visible without Xcode |
+| Developer image mount | **Working** | Auto-downloads + mounts personalized image via Apple TSS |
+| Screenshot | **Working** | PNG capture, ~35 KB home screen, ~463 KB in-app |
+| Process list | **Working** | Full process tree, 1 MB+ output |
+| App launch | **Working** | Launch any app by bundle ID, returns PID |
+| App kill | **Working** | Kill by PID |
+| WiFi discovery | **Partial** | mDNS sees device, but WiFi pairing requires separate flow (not completed) |
+
+### Performance
+
+| Metric | Value |
+|--------|-------|
+| Screenshot latency | **avg 2.5s** (min 2.2s, max 2.6s) |
+| Screenshot size | 35–463 KB (PNG, varies by screen content) |
+| App launch time | ~4s (includes pymobiledevice3 CLI overhead) |
+| App kill time | ~4s |
+| Process list time | ~26s (large output, 1 MB+) |
+
+The 2.5s screenshot latency includes pymobiledevice3 CLI startup overhead (~1s per invocation). A persistent connection (Python library mode or long-running process) would be faster. For comparison, baremobile's Android screenshot via ADB is ~0.5s.
+
+### What Didn't Work
+
+| Attempt | Result | Why |
+|---------|--------|-----|
+| WiFi screenshots (no USB) | **Failed** | iOS 17+ requires separate WiFi remote pairing — USB trust doesn't carry over. Apple intentionally locked this down. |
+| `enable-developer-mode` via CLI | **Failed** | Blocked when passcode is set. Must use `reveal-developer-mode` + manual toggle. |
+| `tunneld` auto-discovery | **Failed** | `lockdown start-tunnel` doesn't register with `tunneld`. Works fine with manual `--rsd` flag. |
+| Python 3.14 | **Failed** | Native deps (lzfse, lzss) don't compile. Must use Python 3.12. |
+
+### Setup Constraints
+
+**One-time setup (requires USB + hands on phone):**
+1. USB cable to establish trust ("Trust This Computer" prompt)
+2. `reveal-developer-mode` → manually toggle Developer Mode in Settings → restart phone
+3. Unlock phone for developer image mount
+
+**Every session (USB stays plugged in):**
+1. Start usbmuxd (or ensure systemd socket activation)
+2. Start lockdown tunnel (requires sudo — creates TUN interface)
+3. Mount developer image (once per phone reboot)
+4. Note the RSD address from tunnel output
+
+**Hard requirements:**
+- USB cable (WiFi not proven on iOS 17+)
+- Phone must be unlocked for developer image mount and screenshots
+- Tunnel process must stay running (sudo)
+- Python 3.12 (not 3.14)
+
+**What you DON'T need:**
+- No Mac
+- No Xcode
+- No Apple Developer account
+- No app installed on the phone
+- No jailbreak
+
+### The Script
+
+`scripts/ios-tunnel.sh` wraps the full setup:
+
+```bash
+./scripts/ios-tunnel.sh setup    # first-time: reveal dev mode, enable WiFi
+./scripts/ios-tunnel.sh          # start bridge: usbmuxd + tunnel + dev image
+./scripts/ios-tunnel.sh check    # validate all prerequisites
+```
+
+### Test Suite
+
+8 tests in `test/ios/screenshot.test.js`:
+
+```bash
+RSD_ADDRESS="<host> <port>" npm run test:ios
+```
+
+Or set the RSD file and skip the env var:
+```bash
+echo "<host> <port>" > /tmp/ios-rsd-address
+npm run test:ios
+```
+
+## 6. Where We Go From Here
+
+### What pymobiledevice3 Gives Us (Architecture A baseline)
+
+With just USB + pymobiledevice3, an agent can:
+- **See the screen** — screenshot every 2.5s
+- **Launch/kill apps** — by bundle ID
+- **Monitor processes** — full process tree
+- **Read device state** — battery, network, storage via lockdown
+- **Access files** — read/write via AFC protocol
+- **Automate Safari** — WebInspector protocol for web content
+
+This is enough for **vision-based automation**: screenshot → send to LLM → get coordinates → tap. The missing piece is the tap — pymobiledevice3 has coordinate-based tap via DVT but it's underdocumented and may not work on all iOS versions.
+
+### What's Missing for Full Control
+
+| Gap | Solution | Effort |
+|-----|----------|--------|
+| **Touch input** | BLE HID mouse + AssistiveTouch | Spike needed |
+| **Keyboard input** | BLE HID keyboard | Spike needed |
+| **Full UI navigation** | BLE HID + Switch Control | Spike needed |
+| **Accessibility tree** | WDA (needs Mac) or VoiceOver hack | Heavy |
+| **WiFi (no cable)** | WiFi remote pairing | Apple-blocked, complex |
+| **Faster screenshots** | Persistent Python connection or AirPlay capture | Medium |
+
+### Use Cases With Current Capabilities
+
+**Today (USB + pymobiledevice3 only):**
+- Automated screenshot capture for QA visual regression
+- App launch/kill orchestration for test suites
+- Device state monitoring (battery, network, processes)
+- Safari/WebView automation via WebInspector
+- Log collection and crash report retrieval
+
+**After BLE HID spike (Architecture C complete):**
+- Full vision-based UI automation: screenshot → LLM → BLE tap
+- Text entry into any app via BLE keyboard
+- Automated user flow testing (signup, checkout, onboarding)
+- Accessibility testing via Switch Control navigation
+- Cross-platform test suites (Android via ADB, iOS via pymobiledevice3 + BLE)
+
+**After WDA addition (Architecture B, needs Mac once):**
+- Element-based automation (find button by label, tap it)
+- Accessibility tree inspection without vision
+- Faster automation loops (no LLM needed for element location)
+- XPath/predicate queries for robust selectors
+
+### Next Spike: BLE HID Input
+
+The critical missing piece. Proves that a Linux machine can send taps and keystrokes to an iPhone via Bluetooth — no app install, no jailbreak, no cable.
+
+Spike goals:
+1. Linux presents as BLE HID keyboard → pair with iPhone → type text
+2. Linux presents as BLE HID mouse → enable AssistiveTouch → tap coordinates
+3. Combine with screenshot: capture screen → decide where to tap → BLE tap → capture result
+
+If BLE HID works, Architecture C is complete and we have a fully functional iOS automation path from Linux.
 
 ---
 
