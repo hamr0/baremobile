@@ -291,6 +291,8 @@ Integration tests auto-skip when no ADB device is available.
 
 Tested end-to-end on API 35 emulator, February 2025:
 
+### Core ADB flows
+
 | Flow | Steps | Result |
 |------|-------|--------|
 | **Open app, read screen** | `launch('com.android.settings')` → `snapshot()` | Clean YAML: "Settings", "Network & internet", "Connected devices" with refs on every tappable group |
@@ -308,7 +310,32 @@ Tested end-to-end on API 35 emulator, February 2025:
 | **Tap by coordinates** | `tapXY(540, 1200)` on home screen | Tap lands correctly at pixel coordinates without ref |
 | **Tap by grid cell** | `tapGrid('E10')` on home screen | Grid resolves cell to center coordinates, tap lands correctly |
 
+### Termux ADB flows
+
+| Flow | Steps | Result |
+|------|-------|--------|
+| **Localhost ADB connection** | `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → `connect({termux: true})` | Device detected, serial `localhost:PORT` |
+| **Snapshot via localhost** | `snapshot()` through localhost ADB | Same YAML output as USB ADB — identical pipeline |
+| **Launch + tap + home** | `launch('com.android.settings')` → `tap(ref)` → `home()` | All interactions work through localhost serial |
+
+All Core ADB flows apply identically to Termux ADB — same `adb.js`, different serial.
+
+### Termux:API flows
+
+| Flow | Steps | Result |
+|------|-------|--------|
+| **Battery status** | `batteryStatus()` inside Termux | JSON with percentage, status, temperature |
+| **Clipboard round-trip** | `clipboardSet('test')` → `clipboardGet()` | Returns `"test"` |
+| **Volume query** | `volumeGet()` | JSON array of stream volumes |
+| **WiFi info** | `wifiInfo()` | JSON with SSID, BSSID, signal strength |
+| **Vibrate** | `vibrate()` | Device vibrates |
+| **SMS/calls/location/camera** | Not yet tested | Requires real device with SIM + GPS |
+
 ### What the agent handles without help
+
+#### Core ADB + Termux ADB (all ADB-based screen control)
+
+These apply to both Core ADB (USB/WiFi/emulator) and Termux ADB (localhost). Same `adb.js`, same pipeline.
 
 | Obstacle | How it's handled |
 |----------|-----------------|
@@ -330,15 +357,43 @@ Tested end-to-end on API 35 emulator, February 2025:
 | **XML entities in text** | uiautomator dump contains `&amp;`, `&lt;`, etc. Parser decodes all 5 XML entities at parse time. Snapshots show clean `Network & internet`, not `Network &amp; internet`. |
 | **Screen unlock** | `press('power')` wakes screen, `swipe()` dismisses lock, `type()` enters PIN. Not automated yet but fully scriptable by agent. |
 
+#### Termux ADB additional
+
+| Obstacle | How it's handled |
+|----------|-----------------|
+| **Localhost device discovery** | `connect({termux: true})` auto-detects `localhost:PORT` devices via `adb devices`. No manual serial needed. |
+| **Wireless debugging pairing** | `termux.js` provides `adbPair()` and `adbConnect()` helpers for one-time setup. |
+| **Reconnection after reboot** | Wireless debugging disables on reboot. Agent or user must re-enable in Developer Options and re-pair. |
+
+#### Termux:API (direct Android APIs)
+
+No screen control. Direct API access via `termux-*` CLI commands — faster and more reliable than tapping through UI for supported actions.
+
+| Capability | How it's handled |
+|------------|-----------------|
+| **SMS send/receive** | `smsSend(number, text)` sends directly. `smsList({limit, type})` reads inbox/sent/draft. No need to open Messages app. |
+| **Phone calls** | `call(number)` initiates call via telephony API. |
+| **Location** | `location({provider})` returns GPS/network/passive coordinates as JSON. |
+| **Camera** | `cameraPhoto(file, {camera})` captures JPEG. Front/back camera selection. |
+| **Clipboard** | `clipboardGet()` / `clipboardSet(text)` — direct access, no tapping. |
+| **Contacts** | `contactList()` returns all contacts as JSON array. |
+| **Notifications** | `notify(title, content, opts)` — create notifications with sound, priority, ongoing flag. |
+| **Device info** | `batteryStatus()`, `volumeGet/Set()`, `wifiInfo()` — JSON responses. |
+| **Hardware control** | `torch(on)` toggles flashlight. `vibrate({duration})` vibrates device. |
+| **Availability check** | `isAvailable()` detects whether Termux:API addon is installed. |
+
 ### What still needs the agent's help
 
-| Gap | Why | Workaround |
-|-----|-----|------------|
-| **Login / auth** | App tokens live in hardware-bound Keystore or locked SharedPrefs. Can't extract. | Agent logs in via UI: tap fields, type credentials, tap sign-in. Works for any app. |
-| **WebView content** | uiautomator tree is empty/shallow inside WebViews. Flutter can crash it. | Roadmap Phase 5: CDP bridge for debug-enabled WebViews. |
-| **CAPTCHAs** | No programmatic bypass. | Agent + vision model, or avoid CAPTCHA-gated flows. |
-| **Multi-touch gestures** | `adb input` only supports single point. No pinch-to-zoom. | Roadmap Phase 6: `sendevent` for multi-touch. |
-| **Keyboard language switching** | Text input assumes ASCII-compatible keyboard. | Agent can switch keyboard via Settings if needed. |
+| Gap | Module | Why | Workaround |
+|-----|--------|-----|------------|
+| **Login / auth** | Core, Termux ADB | App tokens live in hardware-bound Keystore or locked SharedPrefs. Can't extract. | Agent logs in via UI: tap fields, type credentials, tap sign-in. Works for any app. |
+| **WebView content** | Core, Termux ADB | uiautomator tree is empty/shallow inside WebViews. Flutter can crash it. | Roadmap Phase 5: CDP bridge for debug-enabled WebViews. |
+| **CAPTCHAs** | Core, Termux ADB | No programmatic bypass. | Agent + vision model, or avoid CAPTCHA-gated flows. |
+| **Multi-touch gestures** | Core, Termux ADB | `adb input` only supports single point. No pinch-to-zoom. | Roadmap Phase 6: `sendevent` for multi-touch. |
+| **Keyboard language switching** | Core, Termux ADB | Text input assumes ASCII-compatible keyboard. | Agent can switch keyboard via Settings if needed. |
+| **SMS/calls on emulator** | Termux:API | Emulator has no SIM — SMS and call commands require a real device. | Test on physical device with SIM card. |
+| **GPS on emulator** | Termux:API | Emulator lacks GPS hardware — `location()` may fail or return mock data. | Test on physical device or use emulator location injection. |
+| **Screen control** | Termux:API | Not available. Termux:API provides direct API access only — no snapshots, no tapping. | Use Termux ADB mode for screen control alongside Termux:API for direct APIs. |
 
 ## Known Limitations
 

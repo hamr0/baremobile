@@ -174,6 +174,8 @@ await page.press('enter');
 
 ## Gotchas
 
+### Core ADB + Termux ADB (screen control)
+
 **Refs reset every snapshot.** Never store a ref and use it after another snapshot. Always re-read.
 
 **Snapshot takes 1-5 seconds.** uiautomator dump is slow, especially on emulators. Don't snapshot in a tight loop.
@@ -193,6 +195,22 @@ await page.press('enter');
 **Emojis show as entities in contentDesc.** `View [ref=8] (&#128512;)` means the emoji 😀. The agent can read the unicode codepoint or just tap by ref position in the grid.
 
 **type() is word-by-word.** On API 35+, `adb input text` is broken for spaces. baremobile splits text into words and injects KEYCODE_SPACE between them. This means typing is slower for long strings.
+
+### Termux ADB only
+
+**Wireless debugging drops on reboot.** Must re-enable in Developer Options and re-pair after every device restart. The connection is not persistent.
+
+**Pairing port differs from connect port.** The port shown when tapping "Pair device with pairing code" is NOT the port for `adb connect`. The connect port is shown on the main Wireless debugging screen.
+
+### Termux:API only
+
+**No screen control.** Termux:API cannot read the screen, take snapshots, or tap elements. It provides direct Android API access only (SMS, calls, location, etc.). Use Termux ADB for screen control.
+
+**Commands are blocking.** `termux-*` commands run synchronously. `location()` can take several seconds waiting for a GPS fix. `cameraPhoto()` blocks until capture completes.
+
+**Some commands need a real device.** `smsSend()`, `call()`, `location()` require hardware (SIM card, GPS) that emulators don't have. `batteryStatus()`, `clipboardGet/Set()`, `volumeGet()`, `wifiInfo()`, `vibrate()` work on emulators.
+
+**Termux:API addon must be installed separately.** The `termux-api` package (CLI tools) AND the Termux:API Android app (F-Droid) are both required. Missing the app causes silent failures.
 
 ## Termux Setup (on-device control)
 

@@ -58,7 +58,13 @@ Integration tests auto-skip when no ADB device is available.
 - `pkg install termux-api nodejs-lts` inside Termux (Node v24.13.0)
 - POC 1 (bash): raw `termux-*` CLI commands — battery, clipboard, volume, wifi, vibrate — all return correct JSON
 - POC 2 (Node.js): `execFile('termux-battery-status')` + `JSON.parse` inside Termux — validates our exact `termux-api.js` pattern works end-to-end
-- SMS/call/location/camera not tested (emulator limitations: no SIM, no GPS hardware)
+
+**Not yet validated (needs real device):**
+- `smsSend` / `smsList` — requires SIM card
+- `call` — requires SIM card
+- `location` — requires GPS hardware
+- `cameraPhoto` — requires camera hardware
+- `contactList` — requires contacts on device
 
 **To validate remaining commands on a real device:**
 ```bash
@@ -75,23 +81,23 @@ termux-contact-list
 
 These were tested end-to-end on API 35 emulator and are too stateful/slow for automated tests:
 
-| Flow | Steps |
-|------|-------|
-| Open app + read screen | launch Settings → snapshot → verify text |
-| Search by typing | Settings → tap search → type "wifi" → verify results |
-| Navigate back/home | press back, press home → verify screen change |
-| Scroll long lists | Settings → scroll down → verify new items |
-| Send SMS | Messages → new chat → recipient → compose → send |
-| Insert emoji | Compose → emoji panel → tap emoji → verify in input |
-| File attachment | Compose → + → Files → picker → select file |
-| Dismiss dialogs | Dialog appears → read text → tap OK |
-| Toggle Bluetooth | Settings → Connected devices → Connection preferences → Bluetooth → toggle off/on |
-| Screenshot capture | screenshot() → verify PNG magic bytes |
-| Tap by coordinates | tapXY(540, 1200) on home screen |
-| Tap by grid cell | tapGrid('E10') → resolves + taps correctly |
-| Termux ADB (POC) | tcpip → forward → connect localhost → snapshot → launch Settings → tap → home |
-| Termux:API (bash POC) | Sideload Termux + Termux:API → battery, clipboard, volume, wifi, vibrate — all JSON |
-| Termux:API (Node POC) | Node v24.13.0 in Termux → execFile + JSON.parse → battery, clipboard, volume, wifi, vibrate — validates termux-api.js pattern |
+| Flow | Module | Steps |
+|------|--------|-------|
+| Open app + read screen | Core ADB | launch Settings → snapshot → verify text |
+| Search by typing | Core ADB | Settings → tap search → type "wifi" → verify results |
+| Navigate back/home | Core ADB | press back, press home → verify screen change |
+| Scroll long lists | Core ADB | Settings → scroll down → verify new items |
+| Send SMS | Core ADB | Messages → new chat → recipient → compose → send |
+| Insert emoji | Core ADB | Compose → emoji panel → tap emoji → verify in input |
+| File attachment | Core ADB | Compose → + → Files → picker → select file |
+| Dismiss dialogs | Core ADB | Dialog appears → read text → tap OK |
+| Toggle Bluetooth | Core ADB | Settings → Connected devices → Connection preferences → Bluetooth → toggle off/on |
+| Screenshot capture | Core ADB | screenshot() → verify PNG magic bytes |
+| Tap by coordinates | Core ADB | tapXY(540, 1200) on home screen |
+| Tap by grid cell | Core ADB | tapGrid('E10') → resolves + taps correctly |
+| Termux ADB (POC) | Termux ADB | tcpip → forward → connect localhost → snapshot → launch Settings → tap → home |
+| Termux:API (bash POC) | Termux:API | Sideload Termux + Termux:API → battery, clipboard, volume, wifi, vibrate — all JSON |
+| Termux:API (Node POC) | Termux:API | Node v24.13.0 in Termux → execFile + JSON.parse → battery, clipboard, volume, wifi, vibrate — validates termux-api.js pattern |
 
 ## Writing new tests
 

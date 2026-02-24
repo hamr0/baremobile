@@ -130,7 +130,9 @@ tap(ref)   → refMap lookup → bounds center → adb input tap X Y
 
 ## What it handles automatically
 
-This is the obstacle course your agent doesn't have to think about:
+This is the obstacle course your agent doesn't have to think about.
+
+### Core ADB (screen control via USB/WiFi/emulator)
 
 | Obstacle | How it's handled |
 |----------|-----------------|
@@ -154,15 +156,43 @@ This is the obstacle course your agent doesn't have to think about:
 | **File attachment** | Tap attach → Files → system file picker opens → navigate folders → tap file → attached. Agent navigates the picker like any other screen. |
 | **Dialogs and confirmations** | Appear in snapshot with text + buttons with refs. Agent reads dialog, taps OK / Cancel / Allow. |
 
+### Termux ADB (on-device screen control via localhost)
+
+All Core ADB capabilities work identically -- same `adb.js`, serial is just `localhost:PORT` instead of a USB/WiFi serial.
+
+| Obstacle | How it's handled |
+|----------|-----------------|
+| **Device discovery** | `connect({termux: true})` auto-detects localhost ADB devices. No serial needed. |
+| **Wireless debugging setup** | `termux.js` provides pairing/connect helpers. One-time `adb pair` + `adb connect localhost:PORT`. |
+| **Connection drops on reboot** | Wireless debugging must be re-enabled after every reboot. Agent or user must re-pair. |
+
+### Termux:API (direct Android APIs, no ADB, no screen control)
+
+Completely different from ADB -- direct Android API access via `termux-*` CLI commands. No snapshots, no tapping, no screen reading.
+
+| Capability | How it works |
+|------------|-------------|
+| **SMS send/receive** | `smsSend(number, text)`, `smsList({limit, type})` |
+| **Phone calls** | `call(number)` — initiates a call |
+| **Location** | `location({provider})` — GPS/network/passive |
+| **Camera** | `cameraPhoto(file)` — JPEG capture |
+| **Clipboard** | `clipboardGet()`, `clipboardSet(text)` |
+| **Contacts** | `contactList()` — all contacts as JSON |
+| **Notifications** | `notify(title, content)` — show notification |
+| **Battery/volume/wifi** | `batteryStatus()`, `volumeGet/Set()`, `wifiInfo()` |
+| **Hardware** | `torch(on)`, `vibrate()` |
+
 ## What still needs the agent's help
 
-| Gap | Why | Workaround |
-|-----|-----|------------|
-| **Login / auth** | App tokens live in Keystore (hardware-bound) or locked SharedPrefs. Can't extract them. | Agent logs in via UI — tap username field, type credentials, tap sign in. Works fine. |
-| **WebView content** | uiautomator tree is empty/shallow inside WebViews. Flutter apps can crash uiautomator. | Roadmap: CDP bridge for debug-enabled WebViews (Phase 5). |
-| **CAPTCHAs** | No way around visual CAPTCHAs programmatically. | Agent + vision model, or skip sites that require them. |
-| **Screen unlock** | uiautomator needs unlocked screen. | `press('power')` to wake, `swipe()` to dismiss, `type()` for PIN. Automatable. |
-| **Multi-touch / pinch** | `adb input` only supports single-point gestures. | Roadmap: `sendevent` for multi-touch (Phase 6). |
+| Gap | Module | Why | Workaround |
+|-----|--------|-----|------------|
+| **Login / auth** | Core, Termux ADB | App tokens live in Keystore (hardware-bound) or locked SharedPrefs. Can't extract them. | Agent logs in via UI — tap username field, type credentials, tap sign in. Works fine. |
+| **WebView content** | Core, Termux ADB | uiautomator tree is empty/shallow inside WebViews. Flutter apps can crash uiautomator. | Roadmap: CDP bridge for debug-enabled WebViews (Phase 5). |
+| **CAPTCHAs** | Core, Termux ADB | No way around visual CAPTCHAs programmatically. | Agent + vision model, or skip sites that require them. |
+| **Screen unlock** | Core, Termux ADB | uiautomator needs unlocked screen. | `press('power')` to wake, `swipe()` to dismiss, `type()` for PIN. Automatable. |
+| **Multi-touch / pinch** | Core, Termux ADB | `adb input` only supports single-point gestures. | Roadmap: `sendevent` for multi-touch (Phase 6). |
+| **SMS/calls on emulator** | Termux:API | Emulator has no SIM — SMS/call commands need a real device. | Test on physical device with SIM. |
+| **Screen control** | Termux:API | Not available. Termux:API is direct API access only. | Use Termux ADB for screen control. |
 
 ## Device setup
 
