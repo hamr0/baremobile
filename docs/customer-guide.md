@@ -378,6 +378,21 @@ npx baremobile close                        # shut down
 
 All output goes to `.baremobile/` in the current directory. Action commands print `ok` to stdout. File-producing commands print the file path. Errors go to stderr with non-zero exit code.
 
+### JSON mode for agents
+
+Add `--json` to any command for machine-readable output — one JSON line per command:
+
+```bash
+baremobile open --json       # {"ok":true,"pid":1234,"port":40049,"outputDir":"..."}
+baremobile snapshot --json   # {"ok":true,"file":".baremobile/screen-*.yml"}
+baremobile tap 4 --json      # {"ok":true}
+baremobile logcat --json     # {"ok":true,"file":"...","count":523}
+# errors:
+baremobile status --json     # {"ok":false,"error":"No session found."}
+```
+
+Every response has `ok: true|false`. File-producing commands include `file`. Errors include `error`. Agents parse one line per invocation — no text formatting to strip.
+
 ---
 
 ## Choosing the Right Module

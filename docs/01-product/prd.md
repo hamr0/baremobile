@@ -782,6 +782,8 @@ Logcat capture: daemon spawns `adb logcat` in background, buffers entries, flush
 
 CLI tests: 10 integration tests (open, status, snapshot, launch+snapshot, tap, screenshot, logcat, close, status-after-close).
 
+`--json` flag: any command outputs a single JSON line (`{"ok":true,...}` or `{"ok":false,"error":"..."}`). Agents parse one line per invocation — no text formatting to strip.
+
 ### Phase 5: bareagent adapter
 `src/bareagent.js` — `createMobileTools(opts)` → `{tools, close}` for [bareagent](https://www.npmjs.com/package/bare-agent) Loop.
 

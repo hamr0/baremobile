@@ -445,6 +445,22 @@ baremobile close
 
 Action commands print `ok` on success. File-producing commands print the file path. Errors go to stderr with non-zero exit.
 
+### JSON mode (`--json`)
+
+Add `--json` to any command for machine-readable output — one JSON line per command:
+
+```bash
+baremobile open --json       # {"ok":true,"pid":1234,"port":40049,"outputDir":"/path/.baremobile"}
+baremobile snapshot --json   # {"ok":true,"file":"/path/.baremobile/screen-2026-02-24T19-41-01.yml"}
+baremobile tap 4 --json      # {"ok":true}
+baremobile logcat --json     # {"ok":true,"file":"/path/.baremobile/logcat-*.json","count":523}
+baremobile status --json     # {"ok":true,"pid":1234,"port":40049,"startedAt":"2026-02-24T19:40:45Z"}
+# errors:
+baremobile status --json     # {"ok":false,"error":"No session found."}
+```
+
+Every response has `ok: true|false`. File-producing commands include `file`. Errors include `error`. Parse one line per invocation.
+
 ## Error Recovery
 
 If an action doesn't seem to work:
