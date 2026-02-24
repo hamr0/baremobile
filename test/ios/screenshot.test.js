@@ -10,14 +10,41 @@ const exec = promisify(execFile);
 const PYTHON = 'python3.12';
 const pmd3 = (...args) => exec(PYTHON, ['-m', 'pymobiledevice3', ...args], { timeout: 30000 });
 
+/** Discover RSD tunnel address from tunneld or env var. Returns ['--rsd', host, port] or []. */
+async function getRsdArgs() {
+  // Allow override via env: RSD_ADDRESS="host port" (space-separated, IPv6 safe)
+  if (process.env.RSD_ADDRESS) {
+    const parts = process.env.RSD_ADDRESS.trim().split(/\s+/);
+    if (parts.length === 2) return ['--rsd', parts[0], parts[1]];
+  }
+  try {
+    const result = await pmd3('remote', 'browse');
+    const tunnels = JSON.parse(result.stdout);
+    // Check USB tunnels first, then WiFi
+    const devices = [...(tunnels.usb || []), ...(tunnels.wifi || [])];
+    if (devices.length > 0) {
+      const d = devices[0];
+      return ['--rsd', d.address, String(d.port)];
+    }
+  } catch { /* no tunneld running */ }
+  return [];
+}
+
 describe('iOS pymobiledevice3 spike', () => {
   let device;
+  let rsdArgs = [];
 
   before(async () => {
     const result = await pmd3('usbmux', 'list');
     const devices = JSON.parse(result.stdout);
     assert.ok(devices.length > 0, 'No iPhone connected — plug in via USB');
     device = devices[0];
+    rsdArgs = await getRsdArgs();
+    if (rsdArgs.length) {
+      console.log(`    RSD tunnel: ${rsdArgs[1]}:${rsdArgs[2]}`);
+    } else {
+      console.log('    No RSD tunnel found — developer service tests may fail');
+    }
   });
 
   it('should detect iPhone via usbmux', () => {
@@ -70,7 +97,7 @@ describe('iOS pymobiledevice3 spike', () => {
     it('should take a screenshot', async () => {
       const outPath = join(tmpdir(), `ios-spike-${Date.now()}.png`);
       try {
-        await exec(PYTHON, ['-m', 'pymobiledevice3', 'developer', 'dvt', 'screenshot', outPath], {
+        await exec(PYTHON, ['-m', 'pymobiledevice3', 'developer', 'dvt', 'screenshot', outPath, ...rsdArgs], {
           timeout: 30000,
         });
         const fileStat = await stat(outPath);
@@ -89,7 +116,7 @@ describe('iOS pymobiledevice3 spike', () => {
 
     it('should list running processes', async () => {
       try {
-        const result = await exec(PYTHON, ['-m', 'pymobiledevice3', 'developer', 'dvt', 'sysmon', 'process', 'single'], {
+        const result = await exec(PYTHON, ['-m', 'pymobiledevice3', 'developer', 'dvt', 'sysmon', 'process', 'single', ...rsdArgs], {
           timeout: 30000,
         });
         const output = result.stdout.trim();

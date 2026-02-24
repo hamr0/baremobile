@@ -254,15 +254,22 @@ python3.12 -m pymobiledevice3 usbmux list   # verify connection
 python3.12 -m pymobiledevice3 amfi reveal-developer-mode
 # Then on iPhone: Settings > Privacy & Security > Developer Mode > ON > restart
 
-# 3. Start tunnel (iOS 17+ requires this, must stay running)
+# 3. Start tunnel (iOS 17+ requires this — separate terminal, must stay running)
+#    Option A: lockdown tunnel (simpler, tested working)
 sudo PYTHONPATH=$HOME/.local/lib/python3.12/site-packages \
-  python3.12 -m pymobiledevice3 remote tunneld
+  python3.12 -m pymobiledevice3 lockdown start-tunnel
+#    → Note the RSD Address and Port printed (e.g. fd07:add5:d1db::1 62584)
+#
+#    Option B: tunneld daemon (auto-discovers devices)
+# sudo PYTHONPATH=$HOME/.local/lib/python3.12/site-packages \
+#   python3.12 -m pymobiledevice3 remote tunneld
 
-# 4. Mount developer disk image (one-time per boot)
+# 4. Mount developer disk image (one-time per boot, phone must be unlocked)
 python3.12 -m pymobiledevice3 mounter auto-mount
 
-# 5. Take a screenshot to verify everything works
-python3.12 -m pymobiledevice3 developer dvt screenshot /tmp/iphone-test.png
+# 5. Take a screenshot (use --rsd from step 3)
+python3.12 -m pymobiledevice3 developer dvt screenshot /tmp/iphone-test.png \
+  --rsd fd07:add5:d1db::1 62584
 ```
 
 ### Troubleshooting
@@ -285,15 +292,25 @@ python3.12 -m pymobiledevice3 developer dvt screenshot /tmp/iphone-test.png
 | usbmuxd | any | USB/WiFi mux daemon for iOS |
 | BlueZ | >= 5.56 | BLE HID keyboard/mouse emulation (future) |
 
-### Planned test structure
+### Running iOS tests
+
+```bash
+# Validate prerequisites (no tunnel needed)
+npm run ios:check
+
+# Run spike tests (requires tunnel running + RSD_ADDRESS set)
+RSD_ADDRESS="fd07:add5:d1db::1 62584" npm run test:ios
+```
+
+> **RSD_ADDRESS** format: `"host port"` (space-separated, IPv6 safe).
+> Get the values from `lockdown start-tunnel` output.
+
+### Test files
 
 ```
 test/ios/
-  check-prerequisites.js   # validate python, pymobiledevice3, usbmuxd, device connection
-  screenshot.test.js        # spike: detect device, lockdown info, dev mode, screenshot
-```
-
-```bash
-npm run ios:check    # validate prerequisites + iPhone connection
-npm run test:ios     # iOS spike tests (requires iPhone)
+  check-prerequisites.js   # prerequisite validator: python, pymobiledevice3, usbmuxd,
+                            # device connection, developer mode, tunneld
+  screenshot.test.js        # spike tests (6 tests): detect device, lockdown info,
+                            # dev mode status, mount image, screenshot, process list
 ```
