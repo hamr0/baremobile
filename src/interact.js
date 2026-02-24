@@ -17,7 +17,8 @@ function boundsCenter(bounds) {
 }
 
 function resolveRef(ref, refMap) {
-  const node = refMap.get(ref);
+  const key = typeof ref === 'string' ? Number(ref) : ref;
+  const node = refMap.get(key);
   if (!node) throw new Error(`No node with ref=${ref}`);
   return node;
 }
