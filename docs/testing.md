@@ -51,12 +51,13 @@ Integration tests auto-skip when no ADB device is available.
 | Layer | Tested | How | Result |
 |-------|--------|-----|--------|
 | **Termux ADB** (`termux.js`) | Yes (emulator) | POC: `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → `connect({termux: true})` → snapshot + tap + launch | All work through localhost ADB |
-| **Termux:API** (`termux-api.js`) | Yes (emulator) | Sideloaded Termux + Termux:API on emulator, ran POC script inside Termux shell | batteryStatus, clipboardGet/Set, volume, wifiInfo, vibrate all return correct JSON |
+| **Termux:API** (`termux-api.js`) | Yes (emulator) | Sideloaded Termux + Termux:API, installed Node v24.13.0 in Termux, ran `execFile` + `JSON.parse` test | batteryStatus, clipboardGet/Set, volume, wifiInfo, vibrate — all pass from Node.js inside Termux |
 
 **Validated on emulator (API 35):**
 - Sideloaded `com.termux_1022.apk` + `com.termux.api_1002.apk` from F-Droid
-- `pkg install termux-api` inside Termux
-- POC script ran: battery (JSON), clipboard set+get, volume (6 streams), wifi info (JSON), vibrate — all passed
+- `pkg install termux-api nodejs-lts` inside Termux (Node v24.13.0)
+- POC 1 (bash): raw `termux-*` CLI commands — battery, clipboard, volume, wifi, vibrate — all return correct JSON
+- POC 2 (Node.js): `execFile('termux-battery-status')` + `JSON.parse` inside Termux — validates our exact `termux-api.js` pattern works end-to-end
 - SMS/call/location/camera not tested (emulator limitations: no SIM, no GPS hardware)
 
 **To validate remaining commands on a real device:**
@@ -89,7 +90,8 @@ These were tested end-to-end on API 35 emulator and are too stateful/slow for au
 | Tap by coordinates | tapXY(540, 1200) on home screen |
 | Tap by grid cell | tapGrid('E10') → resolves + taps correctly |
 | Termux ADB (POC) | tcpip → forward → connect localhost → snapshot → launch Settings → tap → home |
-| Termux:API (POC) | Sideload Termux + Termux:API → battery, clipboard, volume, wifi, vibrate — all JSON |
+| Termux:API (bash POC) | Sideload Termux + Termux:API → battery, clipboard, volume, wifi, vibrate — all JSON |
+| Termux:API (Node POC) | Node v24.13.0 in Termux → execFile + JSON.parse → battery, clipboard, volume, wifi, vibrate — validates termux-api.js pattern |
 
 ## Writing new tests
 
