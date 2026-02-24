@@ -16,6 +16,7 @@ No Appium. No bundled runtime. Zero dependencies. Uses `adb` directly via `child
 ```
 src/
 ├── adb.js        — ADB transport: exec, device discovery, XML dump
+├── termux.js     — Termux transport: detect env, localhost ADB setup
 ├── xml.js        — Zero-dep XML parser (pure, no I/O)
 ├── prune.js      — Pruning pipeline + ref assignment
 ├── aria.js       — Format tree as YAML with [ref=N] markers
@@ -31,7 +32,7 @@ test/
     └── connect.test.js — End-to-end against emulator (6 tests)
 ```
 
-6 modules, ~600 lines, 48 tests (39 unit + 9 integration).
+7 modules, ~700 lines, 65 tests (53 unit + 12 integration).
 
 ## How it works
 
@@ -266,7 +267,7 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 
 ## Tests
 
-48 tests total (39 unit + 9 integration):
+65 tests total (53 unit + 12 integration):
 
 | Test file | Count | What |
 |-----------|-------|------|
@@ -274,7 +275,8 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 | `test/unit/prune.test.js` | 10 | Collapse wrappers, keep refs, drop empties, ref assignment, dedup, null root, contentDesc, states |
 | `test/unit/aria.test.js` | 10 | shortClass mappings (5) + formatTree (5): all fields, nesting, states, disabled, empty |
 | `test/unit/interact.test.js` | 7 | buildGrid: column/row sizing, cell resolution (A1, J-max, case-insensitive), invalid/out-of-range errors, text output |
-| `test/integration/connect.test.js` | 9 | Page API, snapshot, launch, back, screenshot PNG, grid, tapXY, tapGrid, home |
+| `test/unit/termux.test.js` | 14 | isTermux detection, findLocalDevices parsing, adbPair/adbConnect command construction, resolveTermuxDevice error messages, localhost parsing with mixed device types |
+| `test/integration/connect.test.js` | 12 | Page API, snapshot, launch, back, screenshot PNG, grid, tapXY, tapGrid, intent, waitForText, home |
 
 Run all:
 ```bash
@@ -371,6 +373,7 @@ Emulators: no setup needed, `adb devices` shows them automatically.
 | **USB** | Plug in cable, tap "Allow" | Development, testing |
 | **WiFi (same LAN)** | `adb tcpip 5555` once via USB, then `adb connect <phone-ip>:5555`. Unplug USB. | Home setup — phone and machine on same WiFi |
 | **Remote (Tailscale/WireGuard)** | Install Tailscale on phone + machine. Both join same tailnet. `adb connect <tailscale-ip>:5555` | Phone at home, agent on a server elsewhere. ADB works over the virtual LAN. |
+| **Termux (on-device)** | `pkg install android-tools`, enable wireless debugging, `adb pair` + `adb connect localhost:PORT`. `connect({termux: true})` | Autonomous agent on phone — no USB, no host machine |
 | **Emulator** | `emulator -avd <name>` or Android Studio. Auto-detected by `adb devices`. | CI, development, no physical device |
 
 **ADB does NOT work over the open internet.** The phone and the machine running baremobile must be on the same network — physical (WiFi/USB) or virtual (Tailscale/WireGuard VPN). Tailscale is free and makes this trivial.
@@ -429,7 +432,7 @@ Your Android phone
 - Documented platform gaps (switch removal, transitional states) in context.md
 - Documented common intents, vision fallback pattern, waiting patterns in context.md
 
-### Phase 2: Termux transport (NEXT)
+### Phase 2: Termux transport (DONE)
 The key architectural addition. baremobile gets a second transport that runs ON the phone inside Termux, enabling autonomous remote control without USB/WiFi ADB.
 
 **Two purposes of baremobile:**

@@ -1,6 +1,7 @@
 // Public API — connect(opts) → page object, snapshot(opts) one-shot
 
 import { listDevices, exec, shell, dumpXml, screenSize } from './adb.js';
+import { isTermux, resolveTermuxDevice } from './termux.js';
 import { parseXml } from './xml.js';
 import { prune } from './prune.js';
 import { formatTree } from './aria.js';
@@ -22,16 +23,21 @@ export async function snapshot(opts = {}) {
 
 /**
  * Connect to a device and return a page object.
- * @param {{device?: string}} [opts] — device serial or 'auto' (default)
+ * @param {{device?: string, termux?: boolean}} [opts] — device serial or 'auto' (default)
  * @returns {Promise<object>} page
  */
 export async function connect(opts = {}) {
   // Resolve device serial
   let serial = opts.device;
   if (!serial || serial === 'auto') {
-    const devices = await listDevices();
-    if (devices.length === 0) throw new Error('No ADB devices found. Is a device/emulator connected?');
-    serial = devices[0].serial;
+    // Termux mode: explicit opt-in or auto-detect
+    if (opts.termux || (!opts.device && await isTermux())) {
+      serial = await resolveTermuxDevice();
+    } else {
+      const devices = await listDevices();
+      if (devices.length === 0) throw new Error('No ADB devices found. Is a device/emulator connected?');
+      serial = devices[0].serial;
+    }
   }
 
   const adbOpts = { serial };
