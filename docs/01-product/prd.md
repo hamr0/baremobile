@@ -581,8 +581,8 @@ Proved Linux → iPhone control via pymobiledevice3 over USB. 8/8 tests passing.
 
 Prove that Linux can send taps and keystrokes to iPhone via Bluetooth.
 
-1. **BLE HID keyboard** — Linux (BlueZ) presents as BLE keyboard → pair with iPhone → type text into any app
-2. **BLE HID mouse** — enable AssistiveTouch → Linux sends cursor movements + clicks → tap at coordinates
+1. **BLE HID keyboard — PROVEN** — Linux (BlueZ) presents as BLE keyboard → pair with iPhone → type text into any app. Tested: `send_string hello` → text appears in Notes.
+2. **BLE HID mouse — ADDED, testing next** — enable AssistiveTouch → Linux sends cursor movements + clicks → tap at coordinates
 3. **Switch Control** — BLE keyboard keys mapped as switches → full UI navigation without coordinates
 4. **Integration test** — screenshot → decide where to tap → BLE mouse click → verify result
 
@@ -776,7 +776,14 @@ Linux machine → BlueZ BLE HID → Bluetooth → iPhone (keyboard/mouse input)
 
 **Output channel (PROVEN):** pymobiledevice3 over USB — screenshots, app launch/kill, process list, device info. All from Linux, no Mac, no signing, no app on the phone.
 
-**Input channel (NEXT SPIKE):** Linux presents as a BLE HID keyboard/mouse to iOS via BlueZ. iOS natively accepts BLE HID input — this is how every Bluetooth keyboard works. Combined with AssistiveTouch (mouse cursor → tap) or Switch Control (full UI navigation), this gives programmatic input without installing anything on the phone.
+**Input channel (PROVEN — keyboard):** Linux presents as a BLE HID keyboard to iOS via BlueZ. `send_string hello` → "hello" appears in iPhone Notes. iOS natively accepts BLE HID input — this is how every Bluetooth keyboard works. Mouse support added, needs testing with AssistiveTouch (mouse cursor → tap at coordinates).
+
+Key requirements discovered:
+- `ControllerMode = le` in `/etc/bluetooth/main.conf` — LE-only, prevents Classic BT duplicate
+- `KeyboardDisplay` pairing agent — authenticated encryption (MITM protection required for HID)
+- `secure-read` on Report Map + Report Reference descriptors
+- LED Output Report in Report Map — iOS writes Caps Lock status
+- System Python 3.14 for dbus-python/PyGObject (not 3.12)
 
 #### POC results (pymobiledevice3 spike)
 

@@ -19,7 +19,7 @@ No Appium. No Java server. No build step. Zero required dependencies.
 | 1 | **Core ADB** | Android | QA, automation | Full screen control — accessibility tree snapshots, tap/type/swipe by ref, screenshots, app lifecycle | `adb` in PATH, USB debugging enabled |
 | 2 | **Termux ADB** | Android | QA, autonomous agents | Same full screen control, but runs on the phone itself — no host machine needed | Termux app, wireless debugging |
 | 3 | **Termux:API** | Android | QA, autonomous agents | Direct Android APIs — SMS, calls, location, camera, clipboard, contacts, notifications. No screen control. | Termux + Termux:API app |
-| 4 | **iOS (BLE HID + pymobiledevice3)** | iOS | QA | Screenshots + Bluetooth keyboard/mouse input. Vision-based — no accessibility tree. Spike in progress — screenshots working, BLE HID input being proven. | USB cable, Bluetooth adapter, Python 3.12, BlueZ 5.56+ |
+| 4 | **iOS (BLE HID + pymobiledevice3)** | iOS | QA | Screenshots + Bluetooth keyboard/mouse input. Vision-based — no accessibility tree. Keyboard proven, mouse testing next. | USB cable, Bluetooth adapter, Python 3.12 + 3.14, BlueZ 5.56+ |
 
 ### How they relate
 
@@ -227,7 +227,7 @@ await page.launch('com.google.android.apps.maps');
 
 **Who it's for:** QA teams wanting iPhone control from Linux — no Mac, no Xcode, no app installed on the phone.
 
-**Status:** Screenshots and app lifecycle working (Phase 2.7). BLE HID input spike in progress (Phase 2.8).
+**Status:** Screenshots and app lifecycle working (Phase 2.7). BLE HID keyboard proven, mouse next (Phase 2.8).
 
 ### Architecture
 
@@ -249,7 +249,7 @@ Linux machine                              iPhone
 
 Two channels:
 - **USB (pymobiledevice3):** Screenshots, app launch/kill, process list, device info — called from Node.js via `child_process.execFile('python3.12', ['-m', 'pymobiledevice3', ...])`
-- **Bluetooth (BLE HID):** Keyboard input → any text field. Mouse input → tap at coordinates (via AssistiveTouch). Python GATT server using BlueZ D-Bus API, called from Node.js via `child_process.execFile('python3.12', ['ble-hid-poc.py', ...])`
+- **Bluetooth (BLE HID):** Keyboard input → any text field. Mouse input → tap at coordinates (via AssistiveTouch). Python GATT server using BlueZ D-Bus API, called from Node.js via `child_process.execFile('python3', ['ble-hid-poc.py', ...])`. Uses system Python 3.14 (dbus-python/PyGObject are system packages).
 
 ### What works today
 
@@ -260,8 +260,8 @@ Two channels:
 | App kill | Working | ~4s |
 | Device info | Working | <1s |
 | Process list | Working | ~26s |
-| Keyboard input (BLE) | **Spike in progress** | — |
-| Tap at coordinates (BLE) | **Spike in progress** | — |
+| Keyboard input (BLE) | **Working** | ~200ms/char |
+| Tap at coordinates (BLE) | **Testing next** | — |
 
 ### What's being proven (BLE HID spike)
 
@@ -283,9 +283,10 @@ No accessibility tree on iOS (Apple locks it to debug-mode apps). iOS automation
 |------------|-----|
 | USB cable | WiFi locked down in iOS 17+ |
 | Phone unlocked | Developer image mount needs it |
-| Python 3.12 | pymobiledevice3 dependency (not 3.14) |
+| Python 3.12 | pymobiledevice3 (3.14 has build failures with native deps) |
+| Python 3.14 (system) | BLE HID — dbus-python/PyGObject are system packages |
 | Bluetooth adapter | BLE HID input — must support peripheral role |
-| BlueZ 5.56+ | Linux Bluetooth stack (GATT server support) |
+| BlueZ 5.56+ | Linux Bluetooth stack with LE-only mode (`ControllerMode = le`) |
 | `dbus-python` + `PyGObject` | Python bindings for BlueZ D-Bus GATT API |
 | AssistiveTouch on iPhone | Required for BLE mouse → tap conversion |
 

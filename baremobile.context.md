@@ -301,9 +301,9 @@ baremobile is exploring iPhone control from Linux via Architecture C: pymobilede
 - `pymobiledevice3 developer dvt kill` — kill by PID
 - Device info, process list, syslog via lockdown/DVT services
 
-### What's in progress (Phase 2.8 — BLE HID input)
-- BLE HID keyboard — Linux presents as Bluetooth keyboard, types into any iOS text field
-- BLE HID mouse — with AssistiveTouch, mouse cursor = finger tap at coordinates
+### What's proven (Phase 2.8 — BLE HID input)
+- **BLE HID keyboard — WORKING.** Linux presents as Bluetooth keyboard, types into any iOS text field. Tested: `send_string hello` → "hello" appears in iPhone Notes.
+- BLE HID mouse — added, needs testing with AssistiveTouch enabled on iPhone
 - Integration: screenshot → decide where to tap → BLE mouse click → verify
 
 ### Key differences from Android
@@ -334,6 +334,7 @@ Unlike Android (accessibility tree → ref-based tap), iOS requires a vision mod
 | BLE-capable adapter | Most built-in laptop adapters work. Must support peripheral role. |
 | `dbus-python` + `PyGObject` | Python bindings for BlueZ D-Bus GATT server |
 | Disable BlueZ input plugin | `/etc/bluetooth/main.conf`: `DisablePlugins = input` — prevents BlueZ from claiming HID devices |
+| `ControllerMode = le` | `/etc/bluetooth/main.conf` — LE-only mode, prevents Classic BT duplicate |
 | AssistiveTouch on iPhone | Settings > Accessibility > Touch > AssistiveTouch > ON (for mouse/tap) |
 | One-time BLE pairing | iPhone sees "baremobile" in Bluetooth settings, tap to pair |
 
@@ -344,7 +345,7 @@ Unlike Android (accessibility tree → ref-based tap), iOS requires a vision mod
 ./scripts/ios-tunnel.sh          # start bridge: usbmuxd + tunnel + dev image mount
 
 # BLE HID (input — spike in progress)
-sudo python3.12 test/ios/ble-hid-poc.py  # start GATT server, pair from iPhone
+sudo python3 test/ios/ble-hid-poc.py     # start GATT server, pair from iPhone
 
 # Tests
 npm run test:ios                 # 8 screenshot/lifecycle tests

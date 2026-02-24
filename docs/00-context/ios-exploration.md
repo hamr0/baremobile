@@ -184,7 +184,7 @@ Agent → baremobile-ios → BlueZ BLE HID → Bluetooth → iPhone (input)
 
 Spike order:
 1. ~~Get pymobiledevice3 taking screenshots over WiFi from Linux~~ **Done (USB) — Phase 2.7**
-2. Get BlueZ presenting as BLE HID keyboard, pair with iPhone — **In progress (Phase 2.8)**
+2. ~~Get BlueZ presenting as BLE HID keyboard, pair with iPhone~~ **Done (Phase 2.8) — keyboard proven, mouse added**
 3. Enable Switch Control, send navigation commands via BLE
 4. Combine: screenshot → vision → decide action → BLE HID input
 5. If screen-only vision is too slow, evaluate adding WDA later

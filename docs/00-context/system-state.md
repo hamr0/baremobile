@@ -35,7 +35,7 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
 | Phase | Status | What |
 |-------|--------|------|
 | 2.7 iOS pymobiledevice3 spike | DONE | Screenshots, app launch/kill, device info from Linux over USB. 8 iOS tests. |
-| 2.8 iOS BLE HID input spike | IN PROGRESS | BLE keyboard/mouse input to iPhone via BlueZ D-Bus GATT server |
+| 2.8 iOS BLE HID input spike | IN PROGRESS | BLE keyboard PROVEN (text appears in Notes), mouse added — testing next |
 | 3 MCP server | DONE | JSON-RPC 2.0 over stdio, 10 tools (same pattern as barebrowse) |
 | 4 CLI session mode | TODO | cli.js + daemon.js + session-client.js |
 | 5 bareagent adapter | TODO | createMobileTools() → {tools, close} for bareagent Loop |
@@ -59,4 +59,4 @@ Run: `npm run test:ios`
 - Termux:API: POC validated with Node.js inside Termux (battery, clipboard, volume, wifi, vibrate)
 - Termux:API (not yet validated): SMS, calls, location, camera (needs real device)
 - iOS pymobiledevice3: 8/8 tests passing — screenshots, app launch/kill, device info (Fedora 43, iPhone 13 mini)
-- iOS BLE HID: spike in progress — adapter validated (Intel 9460/9560, peripheral role supported)
+- iOS BLE HID: keyboard proven (send_string hello → text in Notes), mouse added — testing next

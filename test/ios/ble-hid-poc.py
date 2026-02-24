@@ -39,11 +39,13 @@ GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 GATT_DESC_IFACE = 'org.bluez.GattDescriptor1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
-# HID Report Map: keyboard only (no Report ID — single report, simplest case)
+# HID Report Map: keyboard (Report ID 1) + mouse (Report ID 2)
 REPORT_MAP = bytes([
+    # --- Keyboard (Report ID 1) ---
     0x05, 0x01,        # Usage Page (Generic Desktop)
     0x09, 0x06,        # Usage (Keyboard)
     0xA1, 0x01,        # Collection (Application)
+    0x85, 0x01,        #   Report ID (1)
     0x05, 0x07,        #   Usage Page (Key Codes)
     0x19, 0xE0,        #   Usage Minimum (224) - Left Control
     0x29, 0xE7,        #   Usage Maximum (231) - Right GUI
@@ -73,6 +75,36 @@ REPORT_MAP = bytes([
     0x95, 0x01,        #   Report Count (1)
     0x75, 0x03,        #   Report Size (3)
     0x91, 0x01,        #   Output (Constant) - Padding
+    0xC0,              # End Collection
+
+    # --- Mouse (Report ID 2) ---
+    0x05, 0x01,        # Usage Page (Generic Desktop)
+    0x09, 0x02,        # Usage (Mouse)
+    0xA1, 0x01,        # Collection (Application)
+    0x85, 0x02,        #   Report ID (2)
+    0x09, 0x01,        #   Usage (Pointer)
+    0xA1, 0x00,        #   Collection (Physical)
+    0x05, 0x09,        #     Usage Page (Buttons)
+    0x19, 0x01,        #     Usage Minimum (1)
+    0x29, 0x03,        #     Usage Maximum (3)
+    0x15, 0x00,        #     Logical Minimum (0)
+    0x25, 0x01,        #     Logical Maximum (1)
+    0x95, 0x03,        #     Report Count (3)
+    0x75, 0x01,        #     Report Size (1)
+    0x81, 0x02,        #     Input (Data, Variable, Absolute) - 3 buttons
+    0x95, 0x01,        #     Report Count (1)
+    0x75, 0x05,        #     Report Size (5)
+    0x81, 0x01,        #     Input (Constant) - Padding
+    0x05, 0x01,        #     Usage Page (Generic Desktop)
+    0x09, 0x30,        #     Usage (X)
+    0x09, 0x31,        #     Usage (Y)
+    0x09, 0x38,        #     Usage (Wheel)
+    0x15, 0x81,        #     Logical Minimum (-127)
+    0x25, 0x7F,        #     Logical Maximum (127)
+    0x75, 0x08,        #     Report Size (8)
+    0x95, 0x03,        #     Report Count (3)
+    0x81, 0x06,        #     Input (Data, Variable, Relative)
+    0xC0,              #   End Collection (Physical)
     0xC0,              # End Collection
 ])
 
@@ -297,11 +329,14 @@ class HIDService(Service):
         self.add_characteristic(HIDInfoChrc(bus, 1, self))
         self.add_characteristic(ControlPointChrc(bus, 2, self))
         self.add_characteristic(ReportMapChrc(bus, 3, self))
-        # Single keyboard report — no Report ID needed
-        self.kb_report = ReportChrc(bus, 4, self, report_id=0)
+        # Keyboard input report (Report ID 1, 8 bytes)
+        self.kb_report = ReportChrc(bus, 4, self, report_id=1, size=8)
         self.add_characteristic(self.kb_report)
-        # Output report for LED indicators (Caps Lock etc. — iOS writes to this)
-        self.led_report = OutputReportChrc(bus, 5, self)
+        # Mouse input report (Report ID 2, 4 bytes)
+        self.mouse_report = ReportChrc(bus, 5, self, report_id=2, size=4)
+        self.add_characteristic(self.mouse_report)
+        # LED output report (Report ID 1, type=Output)
+        self.led_report = OutputReportChrc(bus, 6, self)
         self.add_characteristic(self.led_report)
 
 
@@ -352,27 +387,26 @@ class ReportReferenceDesc(Descriptor):
 class ReportChrc(Characteristic):
     UUID = '00002a4d-0000-1000-8000-00805f9b34fb'
 
-    def __init__(self, bus, index, service, report_id):
-        # secure-read triggers bonding — iOS requires this for HID reports
+    def __init__(self, bus, index, service, report_id, size=8):
         Characteristic.__init__(self, bus, index, self.UUID,
                                 ['secure-read', 'notify'], service)
         self.report_id = report_id
         self.notifying = False
-        # Report Reference descriptor: report_id=0 means no Report ID in data
         self.add_descriptor(ReportReferenceDesc(bus, 0, self, report_id, report_type=1))
-        self.value = dbus.Array([dbus.Byte(0)] * 8, signature='y')
+        self.value = dbus.Array([dbus.Byte(0)] * size, signature='y')
+        self.label = 'KB' if report_id == 1 else 'MOUSE'
 
     def StartNotify(self):
         self.notifying = True
-        print(f'  Input Report: notifications ON')
+        print(f'  Report {self.report_id} ({self.label}): notifications ON')
 
     def StopNotify(self):
         self.notifying = False
-        print(f'  Input Report: notifications OFF')
+        print(f'  Report {self.report_id} ({self.label}): notifications OFF')
 
     def send_report(self, data):
         self.value = dbus.Array([dbus.Byte(b) for b in data], signature='y')
-        print(f'  [KB] notify: {[hex(b) for b in data]}  notifying={self.notifying}')
+        print(f'  [{self.label}] notify: {[hex(b) for b in data]}  notifying={self.notifying}')
         self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': self.value}, [])
 
 
@@ -488,6 +522,18 @@ def send_string(hid_service, text):
     for i, char in enumerate(text):
         GLib.timeout_add(i * 200, lambda c=char: send_key(hid_service, c) or False)
     print(f'  Sending {len(text)} chars...')
+
+
+def move_mouse(hid_service, dx, dy):
+    dx = max(-127, min(127, dx))
+    dy = max(-127, min(127, dy))
+    hid_service.mouse_report.send_report([0x00, dx & 0xFF, dy & 0xFF, 0x00])
+    GLib.timeout_add(50, lambda: hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
+
+
+def click(hid_service):
+    hid_service.mouse_report.send_report([0x01, 0x00, 0x00, 0x00])
+    GLib.timeout_add(80, lambda: hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
 
 
 # --- Main ---
@@ -624,10 +670,14 @@ def main():
             send_key(hid_service, parts[1])
         elif cmd == 'send_string' and len(parts) >= 2:
             send_string(hid_service, ' '.join(parts[1:]))
+        elif cmd == 'click':
+            click(hid_service)
+        elif cmd == 'move' and len(parts) >= 3:
+            move_mouse(hid_service, int(parts[1]), int(parts[2]))
         elif cmd in ('quit', 'exit', 'q'):
             mainloop.quit()
         elif cmd == 'help':
-            print('  send_key <char> | send_string <text> | quit')
+            print('  send_key <char> | send_string <text> | click | move <dx> <dy> | quit')
         else:
             print(f'  Unknown: {cmd}. Type "help" for commands.')
 
