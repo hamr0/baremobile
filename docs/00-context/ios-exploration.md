@@ -183,8 +183,8 @@ Agent → baremobile-ios → BlueZ BLE HID → Bluetooth → iPhone (input)
 - Mirrors baremobile's approach: external control, accessibility-based navigation
 
 Spike order:
-1. ~~Get pymobiledevice3 taking screenshots over WiFi from Linux~~ **Done (USB)**
-2. Get BlueZ presenting as BLE HID keyboard, pair with iPhone
+1. ~~Get pymobiledevice3 taking screenshots over WiFi from Linux~~ **Done (USB) — Phase 2.7**
+2. Get BlueZ presenting as BLE HID keyboard, pair with iPhone — **In progress (Phase 2.8)**
 3. Enable Switch Control, send navigation commands via BLE
 4. Combine: screenshot → vision → decide action → BLE HID input
 5. If screen-only vision is too slow, evaluate adding WDA later
@@ -327,7 +327,7 @@ This is enough for **vision-based automation**: screenshot → send to LLM → g
 - Faster automation loops (no LLM needed for element location)
 - XPath/predicate queries for robust selectors
 
-### Next Spike: BLE HID Input
+### Next Spike: BLE HID Input (Phase 2.8 — IN PROGRESS)
 
 The critical missing piece. Proves that a Linux machine can send taps and keystrokes to an iPhone via Bluetooth — no app install, no jailbreak, no cable.
 
@@ -337,6 +337,36 @@ Spike goals:
 3. Combine with screenshot: capture screen → decide where to tap → BLE tap → capture result
 
 If BLE HID works, Architecture C is complete and we have a fully functional iOS automation path from Linux.
+
+### BLE HID Pre-Spike Findings
+
+Validated before writing code:
+
+| Check | Result | Detail |
+|-------|--------|--------|
+| BlueZ version | **5.85** | Supports GATT server (peripheral) role. Minimum needed: 5.56. |
+| Bluetooth adapter | **Intel 9460/9560** | Supports peripheral role + 6 advertising instances. Confirmed via `btmgmt info`. |
+| Python D-Bus bindings | **Available** | `python3-dbus` + `python3-gobject` in Fedora repos. Required for BlueZ GATT API. |
+| Reference implementation | **HeadHodge HOGP gist** | Python BLE HID keyboard using BlueZ D-Bus GATT server on RPi4. Closest to our needs. |
+| iOS BLE HID support | **Native** | Any BLE HID keyboard/mouse pairs without app install. AssistiveTouch enables mouse→tap. |
+| BlueZ input plugin conflict | **Known** | Must disable `input` plugin in `/etc/bluetooth/main.conf` to prevent BlueZ from claiming HID devices as local input. |
+
+**Key reference:** [HeadHodge HOGP keyboard gist](https://gist.github.com/HeadHodge/2d3dc6dc2dce03cf82f61d8231e88144) — Python GATT server implementing HID Service (0x1812) with Report Map, Protocol Mode, HID Info. Our POC adapts this for combined keyboard + mouse with iOS-specific requirements (encrypted characteristics, bonding).
+
+**Python deps needed:**
+- `dbus-python` — D-Bus bindings for registering GATT application with BlueZ
+- `PyGObject` (gi) — GLib main loop for async BLE event handling
+- Install: `sudo dnf install python3-dbus python3-gobject` (Fedora) or `pip install dbus-python PyGObject`
+
+**BlueZ config change needed:**
+```ini
+# /etc/bluetooth/main.conf
+[General]
+DisablePlugins = input
+```
+Then: `sudo systemctl restart bluetooth`
+
+This prevents BlueZ from treating our GATT HID service as a local input device.
 
 ---
 
