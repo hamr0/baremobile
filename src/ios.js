@@ -290,9 +290,11 @@ export async function connect(opts = {}) {
 
     async tap(ref) {
       const ble = await ensureBle();
-      // Full Keyboard Access: Escape resets, Tab enters list, Down navigates
-      await ble.pressKey('escape');
-      await new Promise(r => setTimeout(r, 300));
+      // Full Keyboard Access: Tab enters first group, Down navigates within
+      // Reset focus to top: Shift+Tab ×5 to cycle back, then Tab to enter first group
+      for (let i = 0; i < 5; i++) {
+        await ble.sendAndWait('send_hid 0x02 0x2B', 100); // Shift+Tab
+      }
       await ble.pressKey('tab');
       await new Promise(r => setTimeout(r, 300));
       // Down arrow to reach the target (Tab lands on first interactive = ref 1)
