@@ -16,7 +16,8 @@ No Appium. No bundled runtime. Zero dependencies. Uses `adb` directly via `child
 ```
 src/
 ├── adb.js        — ADB transport: exec, device discovery, XML dump
-├── termux.js     — Termux transport: detect env, localhost ADB setup
+├── termux.js     — Termux detection + localhost ADB setup helper
+├── termux-api.js — Termux:API: SMS, calls, location, camera, clipboard (no ADB)
 ├── xml.js        — Zero-dep XML parser (pure, no I/O)
 ├── prune.js      — Pruning pipeline + ref assignment
 ├── aria.js       — Format tree as YAML with [ref=N] markers
@@ -32,7 +33,7 @@ test/
     └── connect.test.js — End-to-end against emulator (6 tests)
 ```
 
-7 modules, ~700 lines, 65 tests (53 unit + 12 integration).
+8 modules, ~800 lines, 83 tests (71 unit + 12 integration).
 
 ## How it works
 
@@ -267,7 +268,7 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 
 ## Tests
 
-65 tests total (53 unit + 12 integration):
+83 tests total (71 unit + 12 integration):
 
 | Test file | Count | What |
 |-----------|-------|------|
@@ -276,6 +277,7 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 | `test/unit/aria.test.js` | 10 | shortClass mappings (5) + formatTree (5): all fields, nesting, states, disabled, empty |
 | `test/unit/interact.test.js` | 7 | buildGrid: column/row sizing, cell resolution (A1, J-max, case-insensitive), invalid/out-of-range errors, text output |
 | `test/unit/termux.test.js` | 14 | isTermux detection, findLocalDevices parsing, adbPair/adbConnect command construction, resolveTermuxDevice error messages, localhost parsing with mixed device types |
+| `test/unit/termux-api.test.js` | 18 | Module exports (16 functions), isAvailable detection, ENOENT errors for all 15 API functions on non-Termux systems |
 | `test/integration/connect.test.js` | 12 | Page API, snapshot, launch, back, screenshot PNG, grid, tapXY, tapGrid, intent, waitForText, home |
 
 Run all:
@@ -454,26 +456,31 @@ On-device control via Termux + localhost ADB. **Not a separate transport** — s
 | **ADB** | Host machine | USB serial, IP:port, emulator-* | USB debugging or `adb tcpip` |
 | **Termux** | On the phone | `localhost:PORT` | Wireless debugging + `adb pair` + `adb connect` |
 
-### Phase 2.5: Termux:API (TODO)
+### Phase 2.5: Termux:API (DONE)
 Lightweight phone actions via [Termux:API](https://wiki.termux.com/wiki/Termux:API) — **no ADB required, no screen control.**
 
 Termux:API is a companion addon that exposes Android APIs as CLI commands. These are direct API calls, faster and more reliable than tapping through the UI. Useful when an agent just needs to "send a text" or "make a call."
 
-**Available actions (via `termux-*` commands):**
+`src/termux-api.js` — 16 functions wrapping `termux-*` commands:
 
-| Command | What |
-|---------|------|
-| `termux-sms-send -n NUMBER "text"` | Send SMS |
-| `termux-sms-list` | Read SMS inbox |
-| `termux-telephony-call NUMBER` | Make a phone call |
-| `termux-location` | Get GPS location |
-| `termux-camera-photo file.jpg` | Take photo |
-| `termux-clipboard-get/set` | Read/write clipboard |
-| `termux-notification` | Show notification |
-| `termux-battery-status` | Battery info |
-| `termux-volume` | Set media/ring/alarm volume |
-| `termux-wifi-connectioninfo` | WiFi info |
-| `termux-contact-list` | List contacts |
+| Export | Termux command | What |
+|--------|---------------|------|
+| `smsSend(number, text, opts?)` | `termux-sms-send -n NUMBER` | Send SMS (supports SIM slot) |
+| `smsList(opts?)` | `termux-sms-list` | List SMS (limit, offset, type filter) |
+| `call(number)` | `termux-telephony-call NUMBER` | Make a phone call |
+| `location(opts?)` | `termux-location` | GPS/network/passive location |
+| `cameraPhoto(file, opts?)` | `termux-camera-photo FILE` | Take JPEG photo |
+| `clipboardGet()` | `termux-clipboard-get` | Read clipboard |
+| `clipboardSet(text)` | `termux-clipboard-set` | Write clipboard |
+| `contactList()` | `termux-contact-list` | List all contacts (JSON) |
+| `notify(title, content, opts?)` | `termux-notification` | Show notification (id, ongoing, sound, priority) |
+| `batteryStatus()` | `termux-battery-status` | Battery info (JSON) |
+| `volumeGet()` | `termux-volume` | Get all stream volumes (JSON) |
+| `volumeSet(stream, value)` | `termux-volume STREAM VALUE` | Set stream volume |
+| `wifiInfo()` | `termux-wifi-connectioninfo` | WiFi connection info (JSON) |
+| `torch(on)` | `termux-torch on/off` | Toggle flashlight |
+| `vibrate(opts?)` | `termux-vibrate` | Vibrate device |
+| `isAvailable()` | `which termux-battery-status` | Detect Termux:API presence |
 
 **What this is NOT:** UI automation. No screen reading, no tapping, no navigating apps. It's direct Android API access — complements ADB screen control, doesn't replace it.
 
@@ -485,18 +492,27 @@ Termux:API is a companion addon that exposes Android APIs as CLI commands. These
 | **ADB (from host)** | Yes (USB/WiFi) | Yes | QA, testing, development |
 | **ADB (from Termux)** | Yes (localhost) | Yes | Autonomous agent on phone |
 
-**Deliverables:** `src/termux-api.js` — thin wrappers around `termux-*` commands, exposed as page methods or standalone tools.
+### Development order & consumption model
 
-### Phase 3: bareagent adapter
-`src/bareagent.js` — `createMobileTools(opts)` → `{tools, close}` for [bareagent](https://www.npmjs.com/package/bare-agent) Loop.
+baremobile has three capability layers. All must be complete before bareagent wires them together.
 
-**bareagent uses `connect()` which auto-detects the environment.** On a host machine → ADB mode. Inside Termux → localhost ADB. Termux:API tools available as bonus when detected. multis consumes baremobile through bareagent tools. User messages multis from any messenger → multis LLM uses baremobile tools → phone responds.
+```
+baremobile core (adb)     — DONE — QA, host controls phone via USB/WiFi
+baremobile termux         — DONE — Termux:API (SMS, calls, location, no ADB)
+baremobile termux adb     — DONE — on-device screen control via localhost ADB
+       ↓ all three complete
+bareagent adapter         — absorbs all three as one tool set
+       ↓
+multis                    — consumes baremobile via bareagent
+```
 
-15 tools: snapshot, tap, tap_xy, tap_grid, type, press, scroll, long_press, swipe, launch, intent, screenshot, back, home, wait_for_text.
+**baremobile core (adb)** is the QA tool — kept separate, used from a host machine.
+**baremobile termux** is direct Android API access — no screen, no ADB, Termux:API only.
+**baremobile termux adb** is full on-device control — screen + interactions via localhost ADB.
+**bareagent** comes last — it wires all three into a single tool set. The bareagent prompt handles routing.
+**multis** consumes baremobile through bareagent. User messages from any messenger → multis → bareagent → phone.
 
-Action tools auto-return snapshot after 300ms settle (same pattern as barebrowse bareagent adapter).
-
-### Phase 4: MCP server (for Claude Code/Desktop users)
+### Phase 3: MCP server (for Claude Code/Desktop users)
 `mcp-server.js` — JSON-RPC 2.0 over stdio, same as barebrowse. Uses ADB transport (local QA/dev use case).
 
 Config for Claude Code:
@@ -504,8 +520,19 @@ Config for Claude Code:
 claude mcp add baremobile -- npx baremobile mcp
 ```
 
-### Phase 5: CLI session mode
+### Phase 4: CLI session mode
 `cli.js` + `src/daemon.js` + `src/session-client.js` — same architecture as barebrowse CLI. Uses ADB transport.
+
+### Phase 5: bareagent adapter
+`src/bareagent.js` — `createMobileTools(opts)` → `{tools, close}` for [bareagent](https://www.npmjs.com/package/bare-agent) Loop.
+
+**bareagent uses `connect()` which auto-detects the environment.** On a host machine → ADB mode. Inside Termux → localhost ADB. Termux:API tools available as bonus when detected. multis consumes baremobile through bareagent tools.
+
+UI control tools (~15): snapshot, tap, tap_xy, tap_grid, type, press, scroll, long_press, swipe, launch, intent, screenshot, back, home, wait_for_text.
+
+Termux:API tools (~10): sms_send, sms_list, call, location, clipboard, contacts, notify, battery, volume, camera.
+
+Action tools auto-return snapshot after 300ms settle (same pattern as barebrowse bareagent adapter). Termux:API tools return JSON directly.
 
 ### Phase 6: WebView CDP bridge
 When an app has a debug-enabled WebView, attach via CDP and use barebrowse's ARIA + pruning pipeline inside it.
