@@ -13,12 +13,13 @@ src/
 ├── prune.js      — Pruning pipeline + ref assignment
 ├── aria.js       — Format tree as YAML with [ref=N] markers
 ├── interact.js   — tap, type, press, swipe, scroll, long-press
-└── index.js      — Public API: connect(opts) → page object
+├── index.js      — Public API: connect(opts) → page object (Android)
+└── ios.js        — iOS API: connect(opts) → page object (pymobiledevice3 + BLE HID)
 
 mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
 ```
 
-9 modules, ~1,000 lines, zero dependencies.
+10 modules, ~1,200 lines, zero dependencies.
 
 ## What's built
 
@@ -29,6 +30,7 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
 | 1.6 Waiting + intents | DONE | waitForText, waitForState, intent() |
 | 2.0 Termux ADB | DONE | isTermux, findLocalDevices, adbPair/Connect, connect({termux: true}) |
 | 2.5 Termux:API | DONE | 16 wrappers: SMS, calls, location, camera, clipboard, battery, volume, etc. |
+| 2.9 iOS module | DONE | `src/ios.js`: connect → page object with screenshot/launch/kill/tapXY/type/press/swipe/back/home. Unified setup script, live speed test. |
 
 ## What's next
 
@@ -36,7 +38,6 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
 |-------|--------|------|
 | 2.7 iOS pymobiledevice3 spike | DONE | Screenshots, app launch/kill, device info from Linux over USB. 8 iOS tests. |
 | 2.8 iOS BLE HID input spike | DONE | BLE keyboard + mouse + combo proven, integration 6/6 passing |
-| 2.9 iOS baremobile-ios module | TODO | Wrap pymobiledevice3 + BLE HID into JS module matching baremobile API |
 | 3 MCP server | DONE | JSON-RPC 2.0 over stdio, 10 tools (same pattern as barebrowse) |
 | 4 CLI session mode | TODO | cli.js + daemon.js + session-client.js |
 | 5 bareagent adapter | TODO | createMobileTools() → {tools, close} for bareagent Loop |
@@ -45,11 +46,11 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
 
 ## Tests
 
-109 tests (93 unit + 16 integration), 7 test files. All passing.
+143 tests (127 unit + 16 integration), 8 test files. All passing.
 
 Run: `node --test test/unit/*.test.js test/integration/*.test.js`
 
-iOS tests (separate, require iPhone + USB): 8 tests in `test/ios/screenshot.test.js`, 6 tests in `test/ios/ble-hid.test.js`, 6 tests in `test/ios/integration.test.js`.
+iOS tests (separate, require iPhone + USB): 8 tests in `test/ios/screenshot.test.js`, 6 tests in `test/ios/ble-hid.test.js`, 6 tests in `test/ios/integration.test.js`, 7 tests in `test/ios/ios-connect.test.js`.
 
 Run: `npm run test:ios`
 
@@ -61,3 +62,4 @@ Run: `npm run test:ios`
 - Termux:API (not yet validated): SMS, calls, location, camera (needs real device)
 - iOS pymobiledevice3: 8/8 tests passing — screenshots, app launch/kill, device info (Fedora 43, iPhone 13 mini)
 - iOS BLE HID: keyboard proven, mouse proven, combo proven, integration 6/6 passing
+- iOS module: `src/ios.js` — connect, screenshot, launch, kill, tapXY, type, press, swipe, back, home, longPressXY

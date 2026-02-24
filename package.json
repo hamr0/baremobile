@@ -5,7 +5,11 @@
   "description": "ADB-direct Android control for autonomous agents. Accessibility tree in, pruned snapshot out.",
   "main": "src/index.js",
   "exports": {
-    ".": "./src/index.js"
+    ".": "./src/index.js",
+    "./ios": "./src/ios.js"
+  },
+  "bin": {
+    "baremobile": "cli.js"
   },
   "engines": {
     "node": ">=22"
@@ -34,6 +38,9 @@
   "license": "MIT",
   "files": [
     "src/",
+    "cli.js",
+    "mcp-server.js",
+    "baremobile.context.md",
     "README.md"
   ]
 }

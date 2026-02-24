@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
 #
 # iOS developer bridge — single script for all pymobiledevice3 services.
-# Manages usbmuxd + lockdown tunnel + developer image mount.
+# Manages usbmuxd + lockdown tunnel + developer image mount + BLE HID.
 #
 # Usage:
-#   ./scripts/ios-tunnel.sh              # start bridge (usbmuxd + tunnel)
+#   ./scripts/ios-tunnel.sh              # start bridge (usbmuxd + tunnel + BLE HID)
+#   ./scripts/ios-tunnel.sh --no-ble     # start bridge without BLE HID
+#   ./scripts/ios-tunnel.sh stop         # stop bridge from PID files
 #   ./scripts/ios-tunnel.sh setup        # first-time: reveal dev mode + enable WiFi
 #   ./scripts/ios-tunnel.sh check        # run prerequisite checker
 #
@@ -17,17 +19,24 @@
 set -euo pipefail
 
 PYTHON=python3.12
+BLE_PYTHON=python3
 PYTHONPATH_USER="$HOME/.local/lib/python3.12/site-packages"
 RSD_FILE="/tmp/ios-rsd-address"
+TUNNEL_PID_FILE="/tmp/ios-tunnel.pid"
+BLE_PID_FILE="/tmp/ios-ble-hid.pid"
+POC_SCRIPT="$(cd "$(dirname "$0")/.." && pwd)/test/ios/ble-hid-poc.py"
 TUNNEL_PID=""
 USBMUXD_PID=""
+BLE_PID=""
+NO_BLE=false
 
 cleanup() {
   echo ""
   echo "Shutting down..."
+  [ -n "$BLE_PID" ] && sudo kill "$BLE_PID" 2>/dev/null && echo "  BLE HID stopped"
   [ -n "$TUNNEL_PID" ] && kill "$TUNNEL_PID" 2>/dev/null && echo "  tunnel stopped"
   [ -n "$USBMUXD_PID" ] && sudo kill "$USBMUXD_PID" 2>/dev/null && echo "  usbmuxd stopped"
-  rm -f "$RSD_FILE"
+  rm -f "$RSD_FILE" "$TUNNEL_PID_FILE" "$BLE_PID_FILE"
   exit 0
 }
 trap cleanup INT TERM
@@ -81,6 +90,7 @@ start_tunnel() {
   # Run tunnel and capture output to extract RSD address
   sudo PYTHONPATH="$PYTHONPATH_USER" $PYTHON -m pymobiledevice3 lockdown start-tunnel 2>&1 &
   TUNNEL_PID=$!
+  echo "$TUNNEL_PID" > "$TUNNEL_PID_FILE"
 
   # Wait for tunnel to print RSD address
   sleep 3
@@ -121,6 +131,39 @@ if devs: print(devs[0].get('address',''), devs[0].get('port',''))
   fi
 }
 
+start_ble_hid() {
+  echo "[..] Starting BLE HID (needs sudo)..."
+  sudo PYTHONUNBUFFERED=1 $BLE_PYTHON "$POC_SCRIPT" &
+  BLE_PID=$!
+  echo "$BLE_PID" > "$BLE_PID_FILE"
+
+  # Wait for BLE to print "Ready."
+  local ready=false
+  for i in $(seq 1 15); do
+    # Check if process is still alive
+    if ! kill -0 "$BLE_PID" 2>/dev/null; then
+      echo "[FAIL] BLE HID process died during startup"
+      BLE_PID=""
+      rm -f "$BLE_PID_FILE"
+      return 1
+    fi
+    # Check for Ready message — since output goes to terminal, check /proc
+    # We can't easily capture bg process stdout, so use a timeout heuristic
+    if [ "$i" -ge 5 ]; then
+      ready=true
+      break
+    fi
+    sleep 1
+  done
+
+  if $ready; then
+    echo "[ok] BLE HID started (pid $BLE_PID)"
+    echo "     On iPhone: Settings > Bluetooth > tap \"baremobile\" to pair"
+  else
+    echo "[warn] BLE HID may not be ready — check output above"
+  fi
+}
+
 # === Commands ===
 
 cmd_setup() {
@@ -147,12 +190,49 @@ cmd_check() {
   exec node test/ios/check-prerequisites.js
 }
 
+cmd_stop() {
+  echo "=== Stopping iOS Bridge ==="
+  local stopped=false
+
+  if [ -f "$BLE_PID_FILE" ]; then
+    local pid
+    pid=$(cat "$BLE_PID_FILE")
+    if sudo kill "$pid" 2>/dev/null; then
+      echo "  BLE HID stopped (pid $pid)"
+      stopped=true
+    fi
+    rm -f "$BLE_PID_FILE"
+  fi
+
+  if [ -f "$TUNNEL_PID_FILE" ]; then
+    local pid
+    pid=$(cat "$TUNNEL_PID_FILE")
+    if sudo kill "$pid" 2>/dev/null; then
+      echo "  tunnel stopped (pid $pid)"
+      stopped=true
+    fi
+    rm -f "$TUNNEL_PID_FILE"
+  fi
+
+  rm -f "$RSD_FILE"
+
+  if $stopped; then
+    echo "Done."
+  else
+    echo "No running bridge found."
+  fi
+}
+
 cmd_start() {
   echo "=== iOS Developer Bridge ==="
   ensure_usbmuxd
   wait_for_device
   mount_developer_image
   start_tunnel
+
+  if ! $NO_BLE; then
+    start_ble_hid
+  fi
 
   echo ""
   echo "Bridge running. Tests:"
@@ -162,9 +242,16 @@ cmd_start() {
   wait
 }
 
-case "${1:-start}" in
-  setup) cmd_setup ;;
-  check) cmd_check ;;
-  start|"") cmd_start ;;
-  *) echo "Usage: $0 [setup|check|start]"; exit 1 ;;
-esac
+# Parse flags
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --no-ble) NO_BLE=true; shift ;;
+    setup) cmd_setup; exit 0 ;;
+    check) cmd_check; exit 0 ;;
+    stop) cmd_stop; exit 0 ;;
+    start) shift; break ;;
+    *) echo "Usage: $0 [--no-ble] [setup|check|start|stop]"; exit 1 ;;
+  esac
+done
+
+cmd_start
