@@ -10,16 +10,20 @@
   baremobile
 ```
 
-> Your agent controls Android like you do -- same device, same apps, same screen.
+> Your agent controls your phone like you do -- same device, same apps, same screen.
 > Prunes snapshots down to what matters. Clean YAML, zero wasted tokens.
 
 ---
 
 ## What this is
 
-baremobile gives your AI agent control of any Android device. Tap, type, swipe, launch apps, read the screen. Pages come back as pruned accessibility snapshots with `[ref=N]` markers -- the agent picks a ref and acts on it.
+baremobile gives your AI agent control of mobile devices. Tap, type, swipe, launch apps, read the screen. Pages come back as pruned accessibility snapshots with `[ref=N]` markers -- the agent picks a ref and acts on it.
 
-It uses ADB directly -- no Appium, no Java server, no Espresso. Zero dependencies. Same patterns as [barebrowse](https://www.npmjs.com/package/barebrowse) -- agents learn one API for both web and mobile.
+No Appium. No Java server. No Espresso. Zero dependencies. Same patterns as [barebrowse](https://www.npmjs.com/package/barebrowse) -- agents learn one API for both web and mobile.
+
+**Android:** Full screen control via ADB -- from a host machine or on-device via Termux. Plus direct device APIs (SMS, calls, GPS, camera, clipboard) through Termux:API.
+
+**iOS:** Screenshots over USB, app launch/kill. BLE HID input (Bluetooth keyboard/mouse) in progress. No Mac, no Xcode required.
 
 ## Install
 
@@ -72,9 +76,9 @@ For the full API, wiring patterns, and integration guide, see **[baremobile.cont
 
 ### 3. On-device via Termux -- no host machine needed
 
-Same screen control, running on the phone itself via wireless debugging. Plus direct Android APIs (SMS, calls, GPS, camera, clipboard) through Termux:API -- no screen, no ADB needed.
+Same screen control, running on the phone itself via wireless debugging. Plus direct device APIs (SMS, calls, GPS, camera, clipboard) through Termux:API -- no screen, no ADB needed.
 
-See [docs/customer-guide.md](docs/customer-guide.md) for Termux setup and all three modules.
+See [docs/customer-guide.md](docs/customer-guide.md) for Termux setup and all modules.
 
 ## Three modules
 
@@ -82,22 +86,11 @@ See [docs/customer-guide.md](docs/customer-guide.md) for Termux setup and all th
 |--------|-------------|----------|
 | **Core ADB** | Full screen control from a host machine -- snapshots, tap/type/swipe, screenshots, app lifecycle | `adb` + USB debugging |
 | **Termux ADB** | Same screen control, runs on the phone itself -- no host needed | Termux + wireless debugging |
-| **Termux:API** | Direct Android APIs -- SMS, calls, GPS, camera, clipboard, contacts, notifications | Termux + Termux:API app |
+| **Termux:API** | Direct device APIs -- SMS, calls, GPS, camera, clipboard, contacts, notifications | Termux + Termux:API app |
 
 ## What it handles automatically
 
-This is the obstacle course your agent doesn't have to think about:
-
-| Obstacle | How it's handled |
-|----------|-----------------|
-| **Bloated accessibility trees** | 4-step pruning pipeline: collapse layout wrappers, drop noise, dedup list repeats |
-| **200+ Android widget classes** | Mapped to 27 semantic roles (Button, Text, TextInput, Image, List...) |
-| **Text input broken on API 35+** | Word-by-word input with automatic space injection |
-| **uiautomator dump fails on API 35+** | Binary-safe temp file workaround |
-| **Multi-device setups** | Serial threading on every ADB call, auto-detect by default |
-| **Disabled/checked/focused states** | Rendered in snapshot -- agent sees widget state without extra calls |
-| **ARIA tree fails** | Vision fallback: screenshot + grid-based tapping for Flutter, WebViews, obfuscated views |
-| **Login and auth** | Agent logs in via UI like a human -- tap, type, submit |
+Bloated accessibility trees (4-step pruning), 200+ widget classes mapped to semantic roles, text input quirks on newer APIs, multi-device setups, element state tracking, vision fallback for when the accessibility tree fails, and login via UI. The agent doesn't think about any of it.
 
 ## What the agent sees
 
@@ -132,15 +125,13 @@ Everything the agent can do through baremobile:
 | **Scroll / Swipe** | Scroll within element or raw swipe between points |
 | **Launch** | Open app by package name |
 | **Screenshot** | Screen capture as PNG buffer |
-| **Intent** | Deep navigation via Android intents |
+| **Intent** | Deep navigation via intents |
 | **Wait** | Poll for text or element state (checked, enabled, focused...) |
 | **Grid tap** | Vision fallback: tap by grid cell when accessibility tree fails |
 
-## iOS support (spike phase)
+## Tested against
 
-Exploring iPhone control from Linux -- no Mac, no Xcode, no app install on the phone. Screenshots working over USB. BLE HID input (Bluetooth keyboard/mouse) in progress.
-
-See [docs/00-context/ios-exploration.md](docs/00-context/ios-exploration.md) for architecture and results.
+Settings, Messages, Chrome, Gmail, Files, Camera, Calculator, Contacts, Play Store, YouTube -- on physical devices and emulators across API 33-35.
 
 ## Context file
 
@@ -150,8 +141,8 @@ For detailed setup and usage of each module, see **[docs/customer-guide.md](docs
 
 ## Device setup
 
-1. **Enable Developer Options** -- Settings → About phone → tap "Build number" 7 times
-2. **Enable USB debugging** -- Settings → Developer options → toggle on
+1. **Enable Developer Options** -- Settings > About phone > tap "Build number" 7 times
+2. **Enable USB debugging** -- Settings > Developer options > toggle on
 3. **Connect** -- plug in USB, tap "Allow" on the prompt
 4. **Verify** -- `adb devices` should show your device
 
