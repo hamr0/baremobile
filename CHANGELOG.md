@@ -1,5 +1,45 @@
 # Changelog
 
+## 0.4.0
+
+Termux support — on-device control via localhost ADB + direct Android API access via Termux:API.
+
+### New modules
+- `src/termux.js` — Termux environment detection + localhost ADB setup helpers
+  - `isTermux()` — detect Termux via `TERMUX_VERSION` env or `/data/data/com.termux`
+  - `findLocalDevices()` — scan `adb devices` for `localhost:*` entries
+  - `adbPair(port, code)` / `adbConnect(port)` — wireless debugging setup
+  - `resolveTermuxDevice()` — find localhost device or throw with setup instructions
+- `src/termux-api.js` — 16 Termux:API wrappers (no ADB required)
+  - SMS: `smsSend(number, text)`, `smsList(opts)`
+  - Telephony: `call(number)`
+  - Location: `location(opts)` (GPS/network/passive)
+  - Camera: `cameraPhoto(file, opts)`
+  - Clipboard: `clipboardGet()`, `clipboardSet(text)`
+  - Contacts: `contactList()`
+  - Notifications: `notify(title, content, opts)`
+  - System: `batteryStatus()`, `volumeGet()`, `volumeSet(stream, value)`, `wifiInfo()`, `torch(on)`, `vibrate(opts)`
+  - Detection: `isAvailable()`
+
+### Changed
+- `connect()` accepts `{termux: true}` option — resolves localhost ADB device
+- `connect()` auto-detects Termux environment when no device specified
+
+### Tests
+- 83 tests (71 unit + 12 integration), up from 51
+- New: `test/unit/termux.test.js` (14) — detection, parsing, commands, error messages
+- New: `test/unit/termux-api.test.js` (18) — exports validation, availability detection, ENOENT errors
+
+### Verified
+- POC on emulator: `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → full snapshot + tap + launch through localhost ADB
+- Termux:API not yet validated on real device (requires Termux + Termux:API addon installed)
+
+### Docs
+- Blueprint: restructured roadmap (dev order: core → termux → termux adb → MCP → CLI → bareagent → multis)
+- Blueprint: three levels of phone control (Termux:API / ADB from host / ADB from Termux)
+- Context.md: Termux setup, Termux:API usage patterns
+- Testing guide: updated counts, new test file descriptions
+
 ## 0.3.0
 
 Waiting, intents, platform docs, multis integration path.

@@ -1,6 +1,6 @@
 # Testing Guide
 
-> 48 tests, 4 test files, zero test dependencies.
+> 83 tests, 6 test files, zero test dependencies.
 
 ## Run all tests
 
@@ -17,11 +17,11 @@ Integration tests auto-skip when no ADB device is available.
           │  E2E    │  Manual verified flows (Bluetooth toggle,
           │  (0)    │  SMS send, emoji, file attach — see blueprint)
           ├─────────┤
-          │ Integr. │  9 tests — real device, full pipeline
-          │  (9)    │  connect → snapshot → tap → screenshot
+          │ Integr. │  12 tests — real device, full pipeline
+          │  (12)   │  connect → snapshot → tap → screenshot
           ├─────────┤
-          │  Unit   │  39 tests — pure functions, no device needed
-          │  (39)   │  xml, prune, aria, interact (buildGrid)
+          │  Unit   │  71 tests — pure functions, no device needed
+          │  (71)   │  xml, prune, aria, interact, termux, termux-api
           └─────────┘
 ```
 
@@ -29,7 +29,7 @@ Integration tests auto-skip when no ADB device is available.
 
 ## Test files
 
-### Unit tests (39 tests, no device needed)
+### Unit tests (71 tests, no device needed)
 
 | File | Tests | What it covers |
 |------|-------|----------------|
@@ -37,12 +37,36 @@ Integration tests auto-skip when no ADB device is available.
 | `test/unit/prune.test.js` | 10 | Collapse single-child wrappers, keep ref nodes, drop empty leaves, ref assignment on interactive nodes, dedup same-text siblings, skip dedup on ref nodes, refMap returned, null root, contentDesc kept, state-bearing nodes kept |
 | `test/unit/aria.test.js` | 10 | `shortClass` (5): core widgets, layouts→Group, AppCompat/Material, unknown→last segment, empty→View. `formatTree` (5): all fields + ref + states, nesting/indentation, disabled, multiple states, empty node |
 | `test/unit/interact.test.js` | 7 | `buildGrid`: column/row auto-sizing, A1→top-left center, J-max→bottom-right, case-insensitive resolve, invalid cell format error, out-of-range row error, text includes dimensions |
+| `test/unit/termux.test.js` | 14 | `isTermux` (2): env var detection, path fallback. `findLocalDevices` (2): live adb + empty array. `adbPair`/`adbConnect` (2): command construction (no usage errors). `resolveTermuxDevice` (1): error message content. Parsing logic (7): typical output, non-localhost, offline, multiple devices, empty, mixed types, extra whitespace |
+| `test/unit/termux-api.test.js` | 18 | Module exports (2): all 16 functions present, count exact. `isAvailable` (1): returns false on non-Termux. ENOENT errors (15): all API functions throw correctly when commands not found |
 
-### Integration tests (9 tests, requires ADB device)
+### Integration tests (12 tests, requires ADB device)
 
 | File | Tests | What it covers |
 |------|-------|----------------|
-| `test/integration/connect.test.js` | 9 | Page object has all methods (including tapXY, tapGrid, grid), `snapshot()` returns YAML with refs, `launch()` opens Settings, `press('back')` navigates, `screenshot()` returns valid PNG, `grid()` returns resolve function, `tapXY()` taps coordinates, `tapGrid()` taps by cell, `home()` returns to launcher |
+| `test/integration/connect.test.js` | 12 | Page object has all methods, `snapshot()` returns YAML with refs, `launch()` opens Settings, `press('back')` navigates, `screenshot()` returns valid PNG, `grid()` returns resolve function, `tapXY()` taps coordinates, `tapGrid()` taps by cell, `intent()` deep navigation, `waitForText()` resolves + timeout, `home()` returns to launcher |
+
+### Termux validation status
+
+| Layer | Tested | How | Result |
+|-------|--------|-----|--------|
+| **Termux ADB** (`termux.js`) | Yes (emulator) | POC: `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → `connect({termux: true})` → snapshot + tap + launch | All work through localhost ADB |
+| **Termux:API** (`termux-api.js`) | No (unit only) | Requires physical device with Termux + Termux:API addon. Unit tests verify exports + ENOENT errors. | Awaiting real device validation |
+
+**To validate Termux:API on a real device:**
+1. Install Termux from F-Droid
+2. Install Termux:API addon from F-Droid
+3. `pkg install termux-api nodejs-lts`
+4. Copy baremobile to device, run:
+```js
+import * as api from './src/termux-api.js';
+console.log('available:', await api.isAvailable());
+console.log('battery:', await api.batteryStatus());
+console.log('clipboard:', await api.clipboardGet());
+await api.clipboardSet('test'); console.log('set:', await api.clipboardGet());
+console.log('contacts:', (await api.contactList()).length);
+console.log('wifi:', await api.wifiInfo());
+```
 
 ### Manually verified E2E flows (documented in blueprint)
 
@@ -62,6 +86,7 @@ These were tested end-to-end on API 35 emulator and are too stateful/slow for au
 | Screenshot capture | screenshot() → verify PNG magic bytes |
 | Tap by coordinates | tapXY(540, 1200) on home screen |
 | Tap by grid cell | tapGrid('E10') → resolves + taps correctly |
+| Termux ADB (POC) | tcpip → forward → connect localhost → snapshot → launch Settings → tap → home |
 
 ## Writing new tests
 

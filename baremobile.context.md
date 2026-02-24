@@ -194,7 +194,70 @@ await page.press('enter');
 
 **type() is word-by-word.** On API 35+, `adb input text` is broken for spaces. baremobile splits text into words and injects KEYCODE_SPACE between them. This means typing is slower for long strings.
 
-## Device Setup
+## Termux Setup (on-device control)
+
+baremobile can run inside [Termux](https://termux.dev/) on the phone itself — no USB, no host machine.
+
+### Termux + ADB (full screen control)
+```bash
+# In Termux:
+pkg install android-tools nodejs-lts
+
+# On the phone: Settings → Developer options → Wireless debugging → ON
+# Tap "Pair device with pairing code" — note the port + code
+adb pair localhost:PORT CODE
+
+# Note the connect port (shown on Wireless debugging screen, different from pairing port)
+adb connect localhost:PORT
+
+# Verify
+adb devices  # should show localhost:PORT  device
+```
+
+Then in Node.js:
+```js
+import { connect } from 'baremobile';
+const page = await connect({ termux: true });  // or auto-detects
+const snap = await page.snapshot();
+```
+
+**Limitations:** Wireless debugging must be re-enabled after every reboot. The pairing code is one-time but the connection drops on reboot.
+
+### Termux:API (direct Android APIs, no ADB)
+Install Termux:API addon from F-Droid, then:
+```bash
+pkg install termux-api
+```
+
+```js
+import * as api from 'baremobile/src/termux-api.js';
+
+// Check availability
+if (await api.isAvailable()) {
+  await api.smsSend('5551234', 'Hello from baremobile!');
+  const inbox = await api.smsList({ limit: 5, type: 'inbox' });
+  await api.call('5551234');
+  const loc = await api.location({ provider: 'network' });
+  const battery = await api.batteryStatus();
+  await api.clipboardSet('copied text');
+  const text = await api.clipboardGet();
+  await api.notify('Agent', 'Task complete', { sound: true });
+  await api.torch(true);  // flashlight on
+  await api.vibrate({ duration: 500 });
+}
+```
+
+Termux:API is **not** screen control — it's direct Android API access. Use it for SMS, calls, location, camera, clipboard. Faster and more reliable than tapping through the UI.
+
+### Three levels of control
+
+| Level | ADB? | Screen? | Example |
+|-------|------|---------|---------|
+| **Termux:API** | No | No | "Send a text", "what's my battery" |
+| **ADB (from host)** | USB/WiFi | Yes | QA testing, development |
+| **ADB (from Termux)** | localhost | Yes | Autonomous agent on phone |
+
+## Device Setup (ADB from host)
 
 ```bash
 # Check device connected
