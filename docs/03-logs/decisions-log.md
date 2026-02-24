@@ -45,6 +45,11 @@
 **Decision:** MCP server exposes 10 screen-control tools only. No Termux:API, no tapXY/tapGrid, no intent, no waitFor*.
 **Why:** Screen control is the core use case for MCP clients (Claude Code/Desktop). Termux:API is a separate concern (Termux-only, different audience). tapXY/tapGrid are vision fallbacks (agent should use refs). waitFor* is agent-side logic. intent is too low-level for most agents. Keep it focused — add more tools later if needed.
 
+## iOS via BLE HID + pymobiledevice3
+**When:** Phase 2.7–2.8 (February 2026)
+**Decision:** Support iOS via BLE HID (input) + pymobiledevice3 (output). Reverses the Phase 1 "Android only, no iOS" decision.
+**Why:** BLE HID proves Mac-free iOS control from Linux. Zero deps on the phone — no app install, no signing, no jailbreak. Standard Bluetooth hardware. Vision-based automation (screenshot → LLM → BLE tap). pymobiledevice3 gives screenshots/app lifecycle over USB without Apple Developer account. Architecture C from ios-exploration.md is now fully proven: keyboard, mouse, combo, integration 6/6 passing.
+
 ## bareagent comes last
 **When:** Roadmap restructuring
 **Decision:** Development order: core → termux → termux adb → MCP → CLI → bareagent → multis.

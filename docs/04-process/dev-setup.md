@@ -223,7 +223,7 @@ execFile('termux-battery-status', (err, stdout) => {
 
 ---
 
-## iOS (research/spike — not yet built)
+## iOS
 
 > See [00-context/ios-exploration.md](../00-context/ios-exploration.md) for full research and architecture analysis.
 
@@ -272,6 +272,43 @@ python3.12 -m pymobiledevice3 developer dvt screenshot /tmp/iphone-test.png \
   --rsd fd07:add5:d1db::1 62584
 ```
 
+### BLE HID setup
+
+BLE HID allows Linux to present as a Bluetooth keyboard+mouse to the iPhone. Used for text input and tap-at-coordinates via AssistiveTouch.
+
+#### BlueZ configuration
+
+```ini
+# /etc/bluetooth/main.conf
+[General]
+ControllerMode = le
+DisablePlugins = input
+```
+
+Then restart: `sudo systemctl restart bluetooth`
+
+- `ControllerMode = le` — LE-only mode, prevents duplicate Classic BT entry on iPhone
+- `DisablePlugins = input` — prevents BlueZ from claiming our GATT HID service as local input
+
+#### Python dependencies (system Python 3.14)
+
+```bash
+# dbus-python and PyGObject must be system packages (not pip)
+sudo dnf install python3-dbus python3-gobject
+```
+
+BLE HID uses system Python 3.14 (not 3.12) because dbus-python and PyGObject are system packages that don't install cleanly via pip.
+
+#### iPhone pairing (one-time)
+
+1. Enable AssistiveTouch: Settings > Accessibility > Touch > AssistiveTouch > ON
+2. Enable "Pointer Devices" under AssistiveTouch
+3. Run the BLE HID GATT server: `python3 test/ios/ble-hid-poc.py`
+4. On iPhone: Settings > Bluetooth > tap "baremobile" to pair
+5. Accept the pairing code displayed on both devices
+
+After pairing, the iPhone reconnects automatically when the GATT server starts.
+
 ### Troubleshooting
 
 | Problem | Fix |
@@ -281,16 +318,24 @@ python3.12 -m pymobiledevice3 developer dvt screenshot /tmp/iphone-test.png \
 | `Cannot enable developer-mode when passcode is set` | Use `reveal-developer-mode` instead, toggle manually |
 | `No module named 'pymobiledevice3'` under sudo | Add `PYTHONPATH=$HOME/.local/lib/python3.12/site-packages` |
 | Developer Mode not visible in Settings | Run `amfi reveal-developer-mode` first, force-close Settings, reopen |
-| Python 3.14 build failures | Use Python 3.12 — native deps (lzfse) don't compile on 3.14 yet |
+| Python 3.14 build failures | Use Python 3.12 for pymobiledevice3 — native deps (lzfse) don't compile on 3.14 yet |
+| Two "baremobile" entries on iPhone | `ControllerMode = le` not set — Classic BT + LE both advertising |
+| BLE HID pairs but no input reaches iPhone | Check `KeyboardDisplay` agent capability — `NoInputNoOutput` is silently refused |
+| Keyboard drops when mouse connects | LED Output Report Reference must have Report ID 1 (not 0), Appearance must be `0x03C0` (Generic HID) |
+| Mouse moves tiny amount | iOS clamps single-report movement — send rapid small-step reports (10 units, 8ms interval) |
+| Duplicate BLE pairing entries on iPhone | Remove old entry: iPhone Settings > Bluetooth > (i) > Forget This Device, then re-pair |
 
 ### Package summary
 
 | Component | Version | Purpose |
 |-----------|---------|---------|
 | Python | 3.12 (not 3.14) | pymobiledevice3 host |
+| Python | 3.14 (system) | BLE HID — dbus-python/PyGObject are system packages |
 | pymobiledevice3 | >= 7.7.0 | iOS device bridge (screenshots, app lifecycle, device mgmt) |
 | usbmuxd | any | USB/WiFi mux daemon for iOS |
-| BlueZ | >= 5.56 | BLE HID keyboard/mouse emulation (future) |
+| BlueZ | >= 5.56 | BLE HID keyboard/mouse emulation (`ControllerMode = le`, `DisablePlugins = input`) |
+| dbus-python | system | Python D-Bus bindings for BlueZ GATT API |
+| PyGObject (gi) | system | GLib main loop for async BLE event handling |
 
 ### Running iOS tests
 
@@ -311,6 +356,9 @@ RSD_ADDRESS="fd07:add5:d1db::1 62584" npm run test:ios
 test/ios/
   check-prerequisites.js   # prerequisite validator: python, pymobiledevice3, usbmuxd,
                             # device connection, developer mode, tunneld
-  screenshot.test.js        # spike tests (6 tests): detect device, lockdown info,
-                            # dev mode status, mount image, screenshot, process list
+  screenshot.test.js        # pymobiledevice3 tests (8 tests): detect device, lockdown info,
+                            # dev mode status, mount image, screenshot, process list, app lifecycle, latency
+  ble-hid-poc.py            # BLE HID GATT server (Python, BlueZ D-Bus)
+  ble-hid.test.js           # BLE HID tests (Node.js wrapper): adapter, keyboard, mouse
+  integration.test.js       # Integration tests (6 tests): screenshot → BLE tap → type → verify
 ```

@@ -577,9 +577,9 @@ Proved Linux → iPhone control via pymobiledevice3 over USB. 8/8 tests passing.
 **What doesn't:** WiFi (Apple locked it down in iOS 17+), accessibility tree (can't dump on production apps).
 **Files:** `test/ios/screenshot.test.js`, `test/ios/check-prerequisites.js`, `scripts/ios-tunnel.sh`
 
-### Phase 2.8: iOS — BLE HID input spike (IN PROGRESS)
+### Phase 2.8: iOS — BLE HID input spike (DONE)
 
-Prove that Linux can send taps and keystrokes to iPhone via Bluetooth.
+Proved that Linux can send taps and keystrokes to iPhone via Bluetooth. All capabilities validated end-to-end.
 
 1. **BLE HID keyboard — PROVEN** — Linux (BlueZ) presents as BLE keyboard → pair with iPhone → type text into any app. Tested: `send_string hello` → text appears in Notes.
 2. **BLE HID combo (keyboard+mouse) — PROVEN** — Both Report 1 (KB) and Report 2 (Mouse) subscribe simultaneously. Fixed two bugs that caused keyboard to drop when mouse connected:
@@ -590,7 +590,38 @@ Prove that Linux can send taps and keystrokes to iPhone via Bluetooth.
    - Relative movement only — for absolute positioning, home cursor to corner first then move to target
 4. **iOS hides software keyboard** when BLE keyboard connected — expected behavior, benefits automation (more screen visible in screenshots)
 5. **Integration test — PROVEN** — Full loop: screenshot (pymobiledevice3) → BLE mouse tap → screenshot → BLE keyboard type → screenshot. 6/6 tests passing in ~40s. Settings → Wi-Fi navigation + search bar typing verified.
-6. **Switch Control** — BLE keyboard keys mapped as switches → full UI navigation without coordinates
+6. **Switch Control** — not yet tested. BLE keyboard keys can be mapped as switches → full UI navigation without coordinates. Deferred to future work.
+
+#### iOS Obstacle Course
+
+QA flows validated during Phase 2.7–2.8:
+
+| # | Flow | Status | Hardware |
+|---|------|--------|----------|
+| 1 | Screenshot home screen | PASS | USB |
+| 2 | Launch Settings, screenshot | PASS | USB |
+| 3 | BLE HID connect + pair | PASS | USB + BT |
+| 4 | Home cursor to top-left | PASS | BT |
+| 5 | Tap Wi-Fi row in Settings | PASS | USB + BT |
+| 6 | Verify navigation (screenshot after tap) | PASS | USB + BT |
+| 7 | Type text in search bar | PASS | USB + BT |
+| 8 | Verify text appeared (screenshot after type) | PASS | USB + BT |
+| 9 | App kill by PID | PASS | USB |
+| 10 | Process list | PASS | USB |
+| 11 | Device info (lockdown) | PASS | USB |
+| 12 | Developer mode status check | PASS | USB |
+
+#### Hardware Requirements
+
+| Requirement | Channel | Purpose |
+|------------|---------|---------|
+| USB cable | USB | Screenshots, app launch/kill, device info, tunnel |
+| Bluetooth adapter (BLE-capable) | Bluetooth | Keyboard input, mouse input (tap), swipe gestures |
+| Linux with BlueZ 5.56+ | Bluetooth | BLE HID GATT server |
+| Python 3.12 | USB | pymobiledevice3 runtime |
+| Python 3.14 (system) | Bluetooth | dbus-python, PyGObject for BLE HID |
+| iPhone with Developer Mode | Both | Required for pymobiledevice3 developer services |
+| AssistiveTouch enabled on iPhone | Bluetooth | Converts BLE mouse clicks to screen taps |
 
 #### Technical approach
 
@@ -649,9 +680,9 @@ test/ios/
 
 Tools: BlueZ 5.56+, GATT server with HID Service (UUID 0x1812). Existing projects: btkbdd, EmuBTHID, HeadHodge HOGP gist.
 
-### Phase 2.9: iOS — baremobile-ios module
+### Phase 2.9: iOS — baremobile-ios module (TODO)
 
-Wrap pymobiledevice3 + BLE HID into a JS module matching baremobile's API pattern:
+Wrap pymobiledevice3 + BLE HID into a JS module matching baremobile's API pattern. All underlying capabilities proven in Phase 2.7–2.8.
 
 ```js
 import { connect } from 'baremobile/ios';
@@ -706,8 +737,14 @@ Config file (`.mcp.json`):
 {"mcpServers":{"baremobile":{"command":"node","args":["mcp-server.js"]}}}
 ```
 
-### Phase 4: CLI session mode
+### Phase 4: CLI session mode (DONE)
 `cli.js` + `src/daemon.js` + `src/session-client.js` — same architecture as barebrowse CLI. Uses ADB transport.
+
+Full command set: `open`, `close`, `status`, `snapshot`, `screenshot`, `tap`, `tap-xy`, `tap-grid`, `type`, `press`, `scroll`, `swipe`, `long-press`, `launch`, `intent`, `back`, `home`, `wait-text`, `wait-state`, `grid`, `logcat`, `mcp`.
+
+Logcat capture: daemon spawns `adb logcat` in background, buffers entries, flushes to `.baremobile/logcat-*.json` on demand. Supports `--filter=TAG` and `--clear`.
+
+CLI tests: 10 integration tests (open, status, snapshot, launch+snapshot, tap, screenshot, logcat, close, status-after-close).
 
 ### Phase 5: bareagent adapter
 `src/bareagent.js` — `createMobileTools(opts)` → `{tools, close}` for [bareagent](https://www.npmjs.com/package/bare-agent) Loop.
@@ -796,7 +833,7 @@ Linux machine → BlueZ BLE HID → Bluetooth → iPhone (keyboard/mouse input)
 
 **Output channel (PROVEN):** pymobiledevice3 over USB — screenshots, app launch/kill, process list, device info. All from Linux, no Mac, no signing, no app on the phone.
 
-**Input channel (PROVEN — keyboard):** Linux presents as a BLE HID keyboard to iOS via BlueZ. `send_string hello` → "hello" appears in iPhone Notes. iOS natively accepts BLE HID input — this is how every Bluetooth keyboard works. Mouse support added, needs testing with AssistiveTouch (mouse cursor → tap at coordinates).
+**Input channel (PROVEN — keyboard + mouse):** Linux presents as a BLE HID keyboard+mouse combo to iOS via BlueZ. Keyboard types into any text field, mouse taps at coordinates via AssistiveTouch. Integration test: screenshot → BLE tap → screenshot → BLE type → verify. 6/6 passing.
 
 Key requirements discovered:
 - `ControllerMode = le` in `/etc/bluetooth/main.conf` — LE-only, prevents Classic BT duplicate

@@ -19,7 +19,7 @@ No Appium. No Java server. No build step. Zero required dependencies.
 | 1 | **Core ADB** | Android | QA, automation | Full screen control — accessibility tree snapshots, tap/type/swipe by ref, screenshots, app lifecycle | `adb` in PATH, USB debugging enabled |
 | 2 | **Termux ADB** | Android | QA, autonomous agents | Same full screen control, but runs on the phone itself — no host machine needed | Termux app, wireless debugging |
 | 3 | **Termux:API** | Android | QA, autonomous agents | Direct Android APIs — SMS, calls, location, camera, clipboard, contacts, notifications. No screen control. | Termux + Termux:API app |
-| 4 | **iOS (BLE HID + pymobiledevice3)** | iOS | QA | Screenshots + Bluetooth keyboard/mouse input. Vision-based — no accessibility tree. Keyboard proven, mouse testing next. | USB cable, Bluetooth adapter, Python 3.12 + 3.14, BlueZ 5.56+ |
+| 4 | **iOS (BLE HID + pymobiledevice3)** | iOS | QA | Screenshots + Bluetooth keyboard/mouse input. Vision-based — no accessibility tree. Full integration proven. | USB cable, Bluetooth adapter, Python 3.12 + 3.14, BlueZ 5.56+ |
 
 ### How they relate
 
@@ -223,11 +223,11 @@ await page.launch('com.google.android.apps.maps');
 
 ---
 
-## Module 4: iOS — BLE HID + pymobiledevice3 (In Progress)
+## Module 4: iOS — BLE HID + pymobiledevice3
 
 **Who it's for:** QA teams wanting iPhone control from Linux — no Mac, no Xcode, no app installed on the phone.
 
-**Status:** Screenshots and app lifecycle working (Phase 2.7). BLE HID keyboard proven, mouse next (Phase 2.8).
+**Status:** Screenshots, app lifecycle, BLE keyboard, BLE mouse — all proven (Phase 2.7–2.8). Integration 6/6 passing.
 
 ### Architecture
 
@@ -261,7 +261,8 @@ Two channels:
 | Device info | Working | <1s |
 | Process list | Working | ~26s |
 | Keyboard input (BLE) | **Working** | ~200ms/char |
-| Tap at coordinates (BLE) | **Testing next** | — |
+| Mouse tap at coordinates (BLE) | **Working** | ~1-2s (move + click) |
+| Integration (screenshot → tap → type → verify) | **Working** | ~40s full loop |
 
 ### What's being proven (BLE HID spike)
 
@@ -325,7 +326,7 @@ npm run test:ios
 → **Termux:API.** No screen control needed, direct API access.
 
 ### "I want to test iOS apps from Linux"
-→ **iOS module** (in progress). Screenshots now, full control after BLE HID spike.
+→ **iOS module.** Screenshots + BLE keyboard/mouse proven. JS module wrapping it coming in Phase 2.9.
 
 ### "I want cross-platform test suites"
 → Core ADB for Android + iOS module for iPhone. Same agent, different devices.

@@ -301,8 +301,8 @@ This is enough for **vision-based automation**: screenshot → send to LLM → g
 
 | Gap | Solution | Effort |
 |-----|----------|--------|
-| **Touch input** | BLE HID mouse + AssistiveTouch | Spike needed |
-| **Keyboard input** | BLE HID keyboard | Spike needed |
+| **Touch input** | BLE HID mouse + AssistiveTouch | **DONE** (Phase 2.8) |
+| **Keyboard input** | BLE HID keyboard | **DONE** (Phase 2.8) |
 | **Full UI navigation** | BLE HID + Switch Control | Spike needed |
 | **Accessibility tree** | WDA (needs Mac) or VoiceOver hack | Heavy |
 | **WiFi (no cable)** | WiFi remote pairing | Apple-blocked, complex |
@@ -317,11 +317,11 @@ This is enough for **vision-based automation**: screenshot → send to LLM → g
 - Safari/WebView automation via WebInspector
 - Log collection and crash report retrieval
 
-**After BLE HID spike (Architecture C complete):**
+**Today (USB + pymobiledevice3 + BLE HID — Architecture C proven):**
 - Full vision-based UI automation: screenshot → LLM → BLE tap
 - Text entry into any app via BLE keyboard
 - Automated user flow testing (signup, checkout, onboarding)
-- Accessibility testing via Switch Control navigation
+- Accessibility testing via Switch Control navigation (planned)
 - Cross-platform test suites (Android via ADB, iOS via pymobiledevice3 + BLE)
 
 **After WDA addition (Architecture B, needs Mac once):**
@@ -330,7 +330,7 @@ This is enough for **vision-based automation**: screenshot → send to LLM → g
 - Faster automation loops (no LLM needed for element location)
 - XPath/predicate queries for robust selectors
 
-### BLE HID Input Spike (Phase 2.8 — IN PROGRESS)
+### BLE HID Input Spike (Phase 2.8 — DONE)
 
 The critical missing piece. Proves that a Linux machine can send taps and keystrokes to an iPhone via Bluetooth — no app install, no jailbreak, no cable.
 
@@ -338,9 +338,9 @@ Spike goals:
 1. ~~Linux presents as BLE HID keyboard → pair with iPhone → type text~~ **PROVEN**
 2. ~~Keyboard+mouse combo — both reports subscribe simultaneously~~ **PROVEN** (fixed Report ID + Appearance bugs)
 3. ~~Linux presents as BLE HID mouse → enable AssistiveTouch → tap coordinates~~ **PROVEN**
-4. Combine with screenshot: capture screen → decide where to tap → BLE tap → capture result
+4. ~~Combine with screenshot: capture screen → decide where to tap → BLE tap → capture result~~ **Done (Phase 2.8) — integration test 6/6 passing**
 
-If BLE HID works, Architecture C is complete and we have a fully functional iOS automation path from Linux.
+Architecture C is complete — fully functional iOS automation path from Linux proven.
 
 #### Bugs fixed during spike
 
@@ -397,4 +397,4 @@ This prevents BlueZ from treating our GATT HID service as a local input device.
 
 ---
 
-For setup instructions, packages, and troubleshooting, see [04-process/dev-setup.md](../04-process/dev-setup.md#ios-researchspike--not-yet-built).
+For setup instructions, packages, and troubleshooting, see [04-process/dev-setup.md](../04-process/dev-setup.md#ios).

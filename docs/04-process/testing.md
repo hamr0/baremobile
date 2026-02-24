@@ -171,28 +171,37 @@ Tests call `python3.12 -m pymobiledevice3` via `child_process.execFile`. RSD tun
 
 Developer service tests (screenshot, processes, launch/kill, latency) gracefully skip when Developer Mode is not enabled or tunneld is not running — they log the skip reason instead of failing.
 
-**BLE HID tests (planned — Phase 2.8 spike):**
+**BLE HID tests (6 tests, requires iPhone + Bluetooth adapter):**
 
 | File | Tests | What it covers |
 |------|-------|----------------|
-| `test/ios/ble-hid.test.js` | TBD | BLE adapter detection, GATT server startup, keyboard input, mouse input, integration with screenshot |
+| `test/ios/ble-hid.test.js` | 6 | BLE adapter detection, GATT server startup, keyboard input (send_string), mouse movement + click, combo keyboard+mouse, AssistiveTouch tap at coordinates |
 
 BLE HID tests follow the same pattern: prerequisite check (BlueZ version, adapter capabilities, `dbus-python` installed), graceful skip when BLE hardware not available. Python BLE GATT server called via `child_process.execFile`.
 
+**Integration tests (6 tests, requires iPhone + USB + Bluetooth):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/ios/integration.test.js` | 6 | Screenshot home screen, launch Settings + screenshot, BLE mouse tap Wi-Fi row, verify navigation via screenshot, BLE keyboard type in search bar, verify typed text via screenshot |
+
+Integration tests validate the full loop: pymobiledevice3 screenshots + BLE HID input working together end-to-end. ~40s total runtime.
+
 ```bash
 npm run ios:check    # validate prerequisites + iPhone connection
-npm run test:ios     # 8 pymobiledevice3 spike tests
+npm run test:ios     # 20 iOS tests (8 pymobiledevice3 + 6 BLE HID + 6 integration)
 ```
 
 ```
 test/ios/
   check-prerequisites.js   # validate python, pymobiledevice3, usbmuxd, device
-  screenshot.test.js       # pymobiledevice3 spike: device, lockdown, screenshot, app lifecycle
+  screenshot.test.js       # pymobiledevice3: device, lockdown, screenshot, app lifecycle (8 tests)
   ble-hid-poc.py           # BLE HID GATT server (Python, BlueZ D-Bus)
-  ble-hid.test.js          # BLE HID spike tests (Node.js wrapper)
+  ble-hid.test.js          # BLE HID: adapter, keyboard, mouse, combo (6 tests)
+  integration.test.js      # Integration: screenshot + BLE tap + type + verify (6 tests)
 ```
 
-See [dev-setup.md](dev-setup.md#ios-researchspike--not-yet-built) for iOS prerequisites and setup.
+See [dev-setup.md](dev-setup.md#ios) for iOS prerequisites and setup.
 
 ---
 
