@@ -291,6 +291,30 @@ adb install path/to/app.apk
 adb forward tcp:9222 localabstract:chrome_devtools_remote
 ```
 
+## iOS (spike phase — vision-based, no accessibility tree)
+
+baremobile is exploring iPhone control from Linux via Architecture C: pymobiledevice3 (USB) for screenshots + BLE HID (Bluetooth) for input. No Mac, no Xcode, no app installed on the phone.
+
+### What works now
+- `pymobiledevice3 developer dvt screenshot` — 2.5s PNG capture
+- `pymobiledevice3 developer dvt launch` — launch any app by bundle ID
+- `pymobiledevice3 developer dvt kill` — kill by PID
+- Device info, process list, syslog via lockdown/DVT services
+
+### Key differences from Android
+- **No accessibility tree** — can't dump the a11y tree on production iOS apps. Vision-only.
+- **No `page.snapshot()`** — iOS automation requires screenshot → LLM → coordinates → tap.
+- **USB required** — WiFi developer access blocked by Apple on iOS 17+ (separate remote pairing not completed).
+- **Input via BLE HID** — not yet implemented. Next spike.
+- **Phone must be unlocked** — developer services need an unlocked screen.
+
+### Setup
+```bash
+./scripts/ios-tunnel.sh setup    # first-time: reveal Developer Mode, enable WiFi
+./scripts/ios-tunnel.sh          # start bridge: usbmuxd + tunnel + dev image mount
+npm run test:ios                 # 8 tests
+```
+
 ## Error Recovery
 
 If an action doesn't seem to work:

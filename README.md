@@ -263,6 +263,26 @@ await api.clipboardSet('copied');             // set clipboard
 - [Termux:API](https://f-droid.org/packages/com.termux.api/) addon from F-Droid
 - `pkg install termux-api nodejs-lts` in Termux
 
+## iOS Support (spike phase)
+
+Exploring iPhone control from Linux — no Mac, no Xcode, no app install on the phone.
+
+**What works today (USB):**
+- Screenshots via pymobiledevice3 (2.5s avg)
+- App launch/kill by bundle ID
+- Process list, device info, syslog
+- 8/8 tests passing
+
+**What's next:** BLE HID input — Linux presents as Bluetooth keyboard/mouse to iPhone for taps and text entry.
+
+```bash
+./scripts/ios-tunnel.sh setup    # first-time iPhone setup
+./scripts/ios-tunnel.sh          # start USB bridge
+npm run test:ios                 # run iOS tests
+```
+
+See [docs/00-context/ios-exploration.md](docs/00-context/ios-exploration.md) for architecture and spike results.
+
 ## Coming soon
 
 MCP server, CLI session mode, bareagent adapter, WebView CDP bridge. See [docs/01-product/prd.md](docs/01-product/prd.md) for the full roadmap.

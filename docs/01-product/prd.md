@@ -567,6 +567,61 @@ multis                    — consumes baremobile via bareagent
 **bareagent** comes last — it wires all three into a single tool set. The bareagent prompt handles routing.
 **multis** consumes baremobile through bareagent. User messages from any messenger → multis → bareagent → phone.
 
+### Phase 2.7: iOS — pymobiledevice3 spike (DONE)
+
+Proved Linux → iPhone control via pymobiledevice3 over USB. 8/8 tests passing.
+
+**What works:** screenshots (2.5s avg), app launch/kill, process list, device info.
+**What doesn't:** WiFi (Apple locked it down in iOS 17+), accessibility tree (can't dump on production apps).
+**Files:** `test/ios/screenshot.test.js`, `test/ios/check-prerequisites.js`, `scripts/ios-tunnel.sh`
+
+### Phase 2.8: iOS — BLE HID input spike (NEXT)
+
+Prove that Linux can send taps and keystrokes to iPhone via Bluetooth.
+
+1. **BLE HID keyboard** — Linux (BlueZ) presents as BLE keyboard → pair with iPhone → type text into any app
+2. **BLE HID mouse** — enable AssistiveTouch → Linux sends cursor movements + clicks → tap at coordinates
+3. **Switch Control** — BLE keyboard keys mapped as switches → full UI navigation without coordinates
+4. **Integration test** — screenshot → decide where to tap → BLE mouse click → verify result
+
+Tools: BlueZ 5.56+, GATT server with HID Service (UUID 0x1812). Existing projects: btkbdd, EmuBTHID.
+
+### Phase 2.9: iOS — baremobile-ios module
+
+Wrap pymobiledevice3 + BLE HID into a JS module matching baremobile's API pattern:
+
+```js
+import { connect } from 'baremobile/ios';
+
+const page = await connect();           // auto-detect iPhone via usbmux
+const png = await page.screenshot();    // pymobiledevice3 dvt screenshot
+await page.launch('com.apple.Preferences');  // pymobiledevice3 dvt launch
+await page.tapXY(200, 400);            // BLE HID mouse click
+await page.type('hello');              // BLE HID keyboard
+await page.press('home');              // BLE HID key
+```
+
+**Key difference from Android:** No `page.snapshot()` with accessibility tree. iOS control is vision-based — screenshot → send to LLM → get coordinates → tap. Agent needs a vision model in the loop.
+
+### Phase 2.10: iOS — QA module (vision-based automation)
+
+Full QA automation loop for iOS:
+
+```
+screenshot → LLM (describe screen / find element) → BLE tap → screenshot → verify
+```
+
+| Feature | How |
+|---------|-----|
+| Visual regression | Screenshot comparison across builds |
+| User flow testing | Vision-guided: screenshot → "find the login button" → tap coordinates |
+| App launch/kill orchestration | pymobiledevice3 — same as Android's `adb am start/force-stop` |
+| Cross-platform test suites | Same test logic, Android via `page.snapshot()`, iOS via `page.screenshot()` + LLM |
+| Device state monitoring | Battery, network, processes via pymobiledevice3 lockdown |
+| Log collection | Syslog, crash reports via pymobiledevice3 |
+
+**Constraint:** iPhone must be USB-connected and unlocked. The tunnel script manages usbmuxd + lockdown tunnel. QA tester runs `./scripts/ios-tunnel.sh` once, then tests run.
+
 ### Phase 3: MCP server (for Claude Code/Desktop users)
 `mcp-server.js` — JSON-RPC 2.0 over stdio, same as barebrowse. Uses ADB transport (local QA/dev use case).
 
@@ -646,63 +701,65 @@ Native parts: uiautomator tree (baremobile). WebView parts: CDP ARIA tree (bareb
 
 **Transitional disabled states** — System settings toggles go through a `[disabled]` state during async operations (observed: Bluetooth enabling). Agents should snapshot again after 1-2s when they see `[disabled]` on a toggle they just tapped. Document this pattern.
 
-### Why not iPhone
+### iOS Support — In Progress (Spike Phase)
 
-Investigated and decided against iOS support. The platform doesn't allow it without unreasonable friction.
+> See [00-context/ios-exploration.md](../00-context/ios-exploration.md) for full research, spike results, and architecture options.
 
-#### How iOS accessibility actually works
+#### The challenge
 
-iOS has a rich accessibility tree — same one VoiceOver uses. The technical chain:
+Android gives you ADB — a debug bridge baked into the OS. iOS has no equivalent. The accessibility tree is there (VoiceOver uses it), but Apple gates access behind Xcode + WDA sideloading + certificate management.
+
+#### Our approach: Architecture C (no Mac, no Xcode, no app install)
+
+Instead of fighting Apple's WDA path, we bypass it entirely:
 
 ```
-iOS App → Apple Accessibility Framework → XCUITest (XCUIElementAttributes) → WebDriverAgent → HTTP API
+Linux machine → pymobiledevice3 → USB → iPhone (screenshots, app lifecycle)
+Linux machine → BlueZ BLE HID → Bluetooth → iPhone (keyboard/mouse input)
 ```
 
-1. **Apple Accessibility Framework** — built into iOS. Every app exposes element types, labels, values, traits, frames. The tree is there and it's good.
-2. **XCUITest** — Apple's official UI testing framework. Reads the accessibility tree through public APIs (`XCUIElementAttributes` protocol). Not private APIs, fully sanctioned.
-3. **WebDriverAgent (WDA)** — a server app (originally Facebook, now Appium-maintained) that wraps XCUITest in an HTTP/WebDriver API on port 8100. Send HTTP requests → WDA calls XCUITest → reads accessibility tree → returns JSON.
-4. **Everyone else** — Appium, CogniSim, DroidRun (when they ship) — are just HTTP clients talking to WDA. CogniSim converts the tree to HTML + numbered overlays. Same data, different presentation.
+**Output channel (PROVEN):** pymobiledevice3 over USB — screenshots, app launch/kill, process list, device info. All from Linux, no Mac, no signing, no app on the phone.
 
-**The tree is equivalent to Android's uiautomator dump.** Element types, labels, values, enabled/disabled/selected states, frames/bounds. Max nesting depth: 62 levels (XCTest hard limit, default 50).
+**Input channel (NEXT SPIKE):** Linux presents as a BLE HID keyboard/mouse to iOS via BlueZ. iOS natively accepts BLE HID input — this is how every Bluetooth keyboard works. Combined with AssistiveTouch (mouse cursor → tap) or Switch Control (full UI navigation), this gives programmatic input without installing anything on the phone.
 
-#### The problem isn't the tree — it's getting WDA onto the device
+#### POC results (pymobiledevice3 spike)
 
-**Android setup:** Enable USB debugging (one toggle). Done. `adb` talks to built-in services. Zero install on device.
+| Capability | Status | Performance |
+|-----------|--------|-------------|
+| Device detection | Working | Instant |
+| Screenshot | Working | **2.5s avg** (includes CLI overhead) |
+| App launch | Working | ~4s |
+| App kill | Working | ~4s |
+| Process list | Working | ~26s (1 MB output) |
+| Device info | Working | ~2s |
+| WiFi (no cable) | Failed | Apple requires separate WiFi remote pairing on iOS 17+ |
 
-**iOS setup to access that same accessibility tree:**
-1. Own a Mac (required — Xcode is macOS-only)
-2. Install Xcode (~25GB download)
-3. Create Apple Developer account
-4. Build and sideload WebDriverAgent onto iPhone via Xcode
-5. On iPhone: Settings → General → Device Management → Trust the certificate
-6. **Free tier: re-sign WDA every 7 days** (certificate expires). Paid: $99/year for 1-year signing.
-7. WDA must be running on the iPhone for any automation to work
+#### Constraints
 
-Alternative sideload tools (skip Xcode GUI): `pymobiledevice3`, `ios-deploy`, `go-ios`, `tidevice`, `ios-app-signer`. All still need Mac + developer certificate.
+- **USB cable required** — WiFi not proven on iOS 17+
+- **Phone must be unlocked** for developer image mount + screenshots
+- **One-time setup needs hands on phone** — trust prompt, Developer Mode toggle, restart
+- **Tunnel process needs sudo** — creates TUN interface for developer services
+- **Python 3.12 required** — pymobiledevice3 dependency, 3.14 has build failures
+- **No accessibility tree** — pymobiledevice3 can't dump the a11y tree on production apps. Vision-only (screenshot → LLM).
 
-#### What the competition actually does
+#### What you DON'T need (vs WDA/Appium path)
 
-- **Appium XCUITest driver** — wraps WDA, adds convenience. Same Mac + Xcode + sideload requirement.
-- **CogniSim** — says "iOS Support: Coming soon!" — not shipped. Will use Appium/WDA when they do.
-- **DroidRun** — says "iOS: experimental, full support on roadmap" — not shipped. Same WDA path.
-- **Cloud farms** (BrowserStack, Sauce Labs, Corellium) — hide the WDA setup by running it for you. Expensive.
+- No Mac
+- No Xcode (25 GB)
+- No Apple Developer account ($99/yr)
+- No app installed on the phone
+- No code signing or 7-day re-signing
+- No jailbreak
 
-Nobody has solved the WDA friction. They either haven't shipped iOS, or they require Mac + Xcode.
+#### Current setup
 
-#### Remote iOS is worse
-
-- `idevicescreenshot` (libimobiledevice) — USB only
-- WDA over network — still needs sideload first
-- `pymobiledevice3` network pairing — iOS 17+, flaky
-- Cloud device farms — expensive, vendor lock-in
-
-#### Decision
-
-Android is open by design — USB debugging exposes everything an agent needs. Apple gates the equivalent behind Mac + Xcode + sideload + certificate management. The accessibility tree is there and it's good — Apple just won't let you read it without jumping through hoops.
-
-This isn't a technical problem we can solve. It's a platform policy. We'd be building a wrapper around WDA's friction, not eliminating it. Not worth it.
-
-If Apple ever exposes accessibility APIs via USB (like Android's `adb` + `uiautomator`), revisit immediately. Until then, Android only.
+```bash
+./scripts/ios-tunnel.sh setup    # first-time: reveal dev mode, enable WiFi
+./scripts/ios-tunnel.sh          # start bridge: usbmuxd + tunnel + dev image
+npm run ios:check                # validate prerequisites
+npm run test:ios                 # 8 tests, all passing
+```
 
 ## References
 
