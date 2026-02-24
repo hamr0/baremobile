@@ -1,5 +1,30 @@
 # Changelog
 
+## 0.6.0
+
+CLI session mode — 22 commands, logcat capture, `--json` flag for agent consumption.
+
+### New modules
+- `src/daemon.js` — Background HTTP server holding a `connect()` session, logcat capture via `adb logcat` child process
+- `src/session-client.js` — HTTP client to daemon (sendCommand, readSession, isAlive)
+
+### New features
+- `cli.js` — Full CLI with 22 commands: `open`, `close`, `status`, `snapshot`, `screenshot`, `grid`, `tap`, `tap-xy`, `tap-grid`, `type`, `press`, `scroll`, `swipe`, `long-press`, `launch`, `intent`, `back`, `home`, `wait-text`, `wait-state`, `logcat`, `mcp`
+- Logcat capture: daemon spawns `adb logcat` in background, buffers entries, flushes to `.baremobile/logcat-*.json` on demand. Supports `--filter=TAG` and `--clear`.
+- `--json` flag: any command outputs a single JSON line (`{"ok":true,...}` or `{"ok":false,"error":"..."}`). Agents parse one line per invocation — no text formatting to strip.
+- `"bin": {"baremobile": "cli.js"}` in package.json — `npx baremobile` works
+
+### Tests
+- 129 tests (103 unit + 26 integration), up from 109
+- New: `test/integration/cli.test.js` (10) — open, status, snapshot, launch+snapshot, tap, back, screenshot, logcat, close, status-after-close
+
+### Docs
+- prd.md: Phase 4 marked DONE with command reference and `--json` flag
+- baremobile.context.md: CLI Session Mode section with commands, output conventions, JSON mode, agent usage
+- customer-guide.md: CLI session guide with full command reference table, JSON mode for agents
+- testing.md: updated counts (119→129), added CLI test suite section
+- README.md: CLI added as first usage option ("Four ways to use it")
+
 ## 0.5.1
 
 ### Bug fixes
