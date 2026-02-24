@@ -1,5 +1,18 @@
 # Implementation Log
 
+## 2025-02-24 — MCP server (Phase 3)
+
+- Built `mcp-server.js` — raw JSON-RPC 2.0 over stdio, 10 tools, ~200 lines
+- Copied scaffold from barebrowse, swapped in baremobile tool defs + handlers
+- 10 tools: snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back
+- Singleton lazy session — `connect()` on first tool call, auto-detect device
+- Screenshot returns MCP `image` content type (base64 PNG)
+- Large snapshots saved to `.baremobile/screen-{timestamp}.yml`
+- Created `.mcp.json` config file
+- 15 unit tests: tool definitions, JSON-RPC dispatch, saveSnapshot logic
+- Smoke tested: `initialize` + `tools/list` work via piped JSON-RPC
+- 109 tests passing (93 unit + 16 integration)
+
 ## 2025-02-24 — Termux:API validation + test coverage audit
 
 - Sideloaded Termux + Termux:API on API 35 emulator

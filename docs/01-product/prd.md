@@ -24,6 +24,8 @@ src/
 ├── interact.js   — tap, type, press, swipe, scroll, long-press
 └── index.js      — Public API: connect(opts) → page object
 
+mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
+
 test/
 ├── unit/
 │   ├── xml.test.js     — XML parsing (10 tests)
@@ -33,7 +35,7 @@ test/
     └── connect.test.js — End-to-end against emulator (6 tests)
 ```
 
-8 modules, ~800 lines, 94 tests (78 unit + 16 integration).
+9 modules, ~1,000 lines, 109 tests (93 unit + 16 integration).
 
 ## How it works
 
@@ -575,7 +577,7 @@ Proved Linux → iPhone control via pymobiledevice3 over USB. 8/8 tests passing.
 **What doesn't:** WiFi (Apple locked it down in iOS 17+), accessibility tree (can't dump on production apps).
 **Files:** `test/ios/screenshot.test.js`, `test/ios/check-prerequisites.js`, `scripts/ios-tunnel.sh`
 
-### Phase 2.8: iOS — BLE HID input spike (NEXT)
+### Phase 2.8: iOS — BLE HID input spike (IN PROGRESS)
 
 Prove that Linux can send taps and keystrokes to iPhone via Bluetooth.
 
@@ -584,7 +586,48 @@ Prove that Linux can send taps and keystrokes to iPhone via Bluetooth.
 3. **Switch Control** — BLE keyboard keys mapped as switches → full UI navigation without coordinates
 4. **Integration test** — screenshot → decide where to tap → BLE mouse click → verify result
 
-Tools: BlueZ 5.56+, GATT server with HID Service (UUID 0x1812). Existing projects: btkbdd, EmuBTHID.
+#### Technical approach
+
+BlueZ D-Bus GATT server implementing HID over GATT Profile (HOGP):
+- **HID Service** (UUID `0x1812`) — Report Map, Report, Protocol Mode, HID Information characteristics
+- **Report Map** — combined keyboard + mouse descriptor (keys, modifiers, buttons, X/Y relative movement)
+- **Device Information Service** (UUID `0x180A`) — manufacturer, model, PnP ID
+- **Battery Service** (UUID `0x180F`) — iOS expects this for HID devices
+
+```
+Linux (BlueZ D-Bus)              iPhone
+┌─────────────────────┐          ┌────────────────┐
+│  GATT Server        │          │                │
+│  ├── HID Service    │◀─ BLE ──│  HID Client    │
+│  │   ├── Report Map │  paired  │  (native iOS)  │
+│  │   ├── Report(KB) │          │                │
+│  │   └── Report(MS) │          │  AssistiveTouch│
+│  ├── Device Info    │          │  (mouse→tap)   │
+│  └── Battery        │          │                │
+│                     │          │                │
+│  Python (dbus/GLib) │          │  No app needed │
+└─────────────────────┘          └────────────────┘
+```
+
+#### Pre-spike validation
+
+| Check | Result |
+|-------|--------|
+| BlueZ version | 5.85 — supports GATT server role |
+| Bluetooth adapter | Intel 9460/9560 — peripheral role + 6 advertising instances |
+| Python dbus bindings | `dbus-python` + `PyGObject` available via Fedora packages |
+| Reference implementation | HeadHodge HOGP keyboard gist — BLE HID from Python/BlueZ |
+| iOS BLE HID support | Native — any BLE keyboard/mouse pairs without app install |
+
+#### POC structure
+
+```
+test/ios/
+  ble-hid-poc.py     — BlueZ D-Bus GATT server + HID keyboard/mouse
+  ble-hid.test.js    — Node.js test wrapper (child_process.execFile)
+```
+
+Tools: BlueZ 5.56+, GATT server with HID Service (UUID 0x1812). Existing projects: btkbdd, EmuBTHID, HeadHodge HOGP gist.
 
 ### Phase 2.9: iOS — baremobile-ios module
 
@@ -622,12 +665,25 @@ screenshot → LLM (describe screen / find element) → BLE tap → screenshot �
 
 **Constraint:** iPhone must be USB-connected and unlocked. The tunnel script manages usbmuxd + lockdown tunnel. QA tester runs `./scripts/ios-tunnel.sh` once, then tests run.
 
-### Phase 3: MCP server (for Claude Code/Desktop users)
-`mcp-server.js` — JSON-RPC 2.0 over stdio, same as barebrowse. Uses ADB transport (local QA/dev use case).
+### Phase 3: MCP server (DONE)
+`mcp-server.js` — JSON-RPC 2.0 over stdio, same pattern as barebrowse. 10 screen-control tools, no SDK dependency.
+
+**Tools:** snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back.
+
+**Session:** Singleton lazy — `connect()` on first tool call, auto-detect ADB device.
+
+**Convention:** Action tools return `'ok'`, agent calls `snapshot` explicitly to observe. Screenshot returns MCP `image` content type (base64 PNG). Large snapshots (>30K chars) saved to `.baremobile/screen-{timestamp}.yml`.
+
+**Excluded:** tapXY/tapGrid (agent uses refs), intent (too low-level), waitForText/waitForState (agent-side concern), home (covered by `press('home')`), all Termux:API (separate concern).
 
 Config for Claude Code:
 ```bash
-claude mcp add baremobile -- npx baremobile mcp
+claude mcp add baremobile -- node mcp-server.js
+```
+
+Config file (`.mcp.json`):
+```json
+{"mcpServers":{"baremobile":{"command":"node","args":["mcp-server.js"]}}}
 ```
 
 ### Phase 4: CLI session mode

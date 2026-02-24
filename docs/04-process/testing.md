@@ -1,6 +1,6 @@
 # Testing Guide
 
-> 94 tests, 6 test files, zero test dependencies.
+> 109 tests, 7 test files, zero test dependencies.
 
 ## Run all tests
 
@@ -20,8 +20,8 @@ Integration tests auto-skip when no ADB device is available.
           │ Integr. │  16 tests — real device, full pipeline
           │  (16)   │  connect → snapshot → tap → type → scroll → swipe
           ├─────────┤
-          │  Unit   │  78 tests — pure functions, no device needed
-          │  (78)   │  xml, prune, aria, interact, termux, termux-api
+          │  Unit   │  93 tests — pure functions, no device needed
+          │  (93)   │  xml, prune, aria, interact, termux, termux-api, mcp
           └─────────┘
 ```
 
@@ -137,19 +137,59 @@ termux-contact-list
 
 ---
 
-### iOS (planned)
+### MCP Server
 
-Not yet built. Test structure planned:
+Covers: tool definitions, JSON-RPC dispatch, snapshot save logic.
+
+**Unit tests (15 tests, no device needed):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/unit/mcp.test.js` | 15 | Tool list (8): count, names, schemas, required params. JSON-RPC dispatch (5): initialize, notifications/initialized, tools/list, unknown method, unknown tool error. saveSnapshot (2): file write + maxChars threshold |
+
+---
+
+### iOS (pymobiledevice3 + BLE HID)
+
+Covers: iPhone screenshot capture, app lifecycle, device info via pymobiledevice3; BLE HID keyboard/mouse input via BlueZ.
+
+**Prerequisite checker pattern:** iOS tests require external tools (Python 3.12, pymobiledevice3, usbmuxd, iPhone connected). A standalone checker validates all prerequisites before tests run:
+
+```bash
+npm run ios:check    # validate prerequisites + iPhone connection
+```
+
+The checker (`test/ios/check-prerequisites.js`) validates: Python 3.12 installed, pymobiledevice3 available, usbmuxd running, iPhone connected via USB, Developer Mode enabled, tunneld reachable. Each check has a fix hint on failure.
+
+**Spike tests (8 tests, requires iPhone + USB):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/ios/screenshot.test.js` | 8 | Device detection via usbmux (1), lockdown info (1), developer mode status (1), developer image mount (1), screenshot capture + size validation (1), process list (1), app launch + kill (1), screenshot latency measurement (1) |
+
+Tests call `python3.12 -m pymobiledevice3` via `child_process.execFile`. RSD tunnel address resolved from: env var `RSD_ADDRESS`, file `/tmp/ios-rsd-address` (written by `ios-tunnel.sh`), or `remote browse` auto-discovery.
+
+Developer service tests (screenshot, processes, launch/kill, latency) gracefully skip when Developer Mode is not enabled or tunneld is not running — they log the skip reason instead of failing.
+
+**BLE HID tests (planned — Phase 2.8 spike):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/ios/ble-hid.test.js` | TBD | BLE adapter detection, GATT server startup, keyboard input, mouse input, integration with screenshot |
+
+BLE HID tests follow the same pattern: prerequisite check (BlueZ version, adapter capabilities, `dbus-python` installed), graceful skip when BLE hardware not available. Python BLE GATT server called via `child_process.execFile`.
+
+```bash
+npm run ios:check    # validate prerequisites + iPhone connection
+npm run test:ios     # 8 pymobiledevice3 spike tests
+```
 
 ```
 test/ios/
   check-prerequisites.js   # validate python, pymobiledevice3, usbmuxd, device
-  screenshot.test.js        # spike: detect device, lockdown info, screenshot
-```
-
-```bash
-npm run ios:check    # validate prerequisites + iPhone connection
-npm run test:ios     # iOS spike tests (requires iPhone)
+  screenshot.test.js       # pymobiledevice3 spike: device, lockdown, screenshot, app lifecycle
+  ble-hid-poc.py           # BLE HID GATT server (Python, BlueZ D-Bus)
+  ble-hid.test.js          # BLE HID spike tests (Node.js wrapper)
 ```
 
 See [dev-setup.md](dev-setup.md#ios-researchspike--not-yet-built) for iOS prerequisites and setup.

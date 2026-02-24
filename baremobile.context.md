@@ -295,25 +295,93 @@ adb forward tcp:9222 localabstract:chrome_devtools_remote
 
 baremobile is exploring iPhone control from Linux via Architecture C: pymobiledevice3 (USB) for screenshots + BLE HID (Bluetooth) for input. No Mac, no Xcode, no app installed on the phone.
 
-### What works now
+### What works now (Phase 2.7 — DONE)
 - `pymobiledevice3 developer dvt screenshot` — 2.5s PNG capture
 - `pymobiledevice3 developer dvt launch` — launch any app by bundle ID
 - `pymobiledevice3 developer dvt kill` — kill by PID
 - Device info, process list, syslog via lockdown/DVT services
 
+### What's in progress (Phase 2.8 — BLE HID input)
+- BLE HID keyboard — Linux presents as Bluetooth keyboard, types into any iOS text field
+- BLE HID mouse — with AssistiveTouch, mouse cursor = finger tap at coordinates
+- Integration: screenshot → decide where to tap → BLE mouse click → verify
+
 ### Key differences from Android
 - **No accessibility tree** — can't dump the a11y tree on production iOS apps. Vision-only.
 - **No `page.snapshot()`** — iOS automation requires screenshot → LLM → coordinates → tap.
 - **USB required** — WiFi developer access blocked by Apple on iOS 17+ (separate remote pairing not completed).
-- **Input via BLE HID** — not yet implemented. Next spike.
+- **Input via BLE HID** — spike in progress. Linux BlueZ GATT server presents as HID keyboard/mouse.
 - **Phone must be unlocked** — developer services need an unlocked screen.
+
+### What the iOS agent loop looks like
+
+```
+1. screenshot (pymobiledevice3 over USB)     →  PNG image
+2. send to LLM / vision model               →  "tap at (200, 400)" or "type 'hello'"
+3. BLE HID mouse click at (200, 400)         →  AssistiveTouch tap
+   — or BLE HID keyboard send "hello"        →  keystrokes into focused field
+4. screenshot again                           →  verify result
+5. repeat
+```
+
+Unlike Android (accessibility tree → ref-based tap), iOS requires a vision model in the loop. The agent sees pixels, not a structured tree.
+
+### BLE HID setup requirements
+
+| Requirement | Detail |
+|------------|--------|
+| BlueZ 5.56+ | Linux Bluetooth stack (Fedora 43 ships 5.85) |
+| BLE-capable adapter | Most built-in laptop adapters work. Must support peripheral role. |
+| `dbus-python` + `PyGObject` | Python bindings for BlueZ D-Bus GATT server |
+| Disable BlueZ input plugin | `/etc/bluetooth/main.conf`: `DisablePlugins = input` — prevents BlueZ from claiming HID devices |
+| AssistiveTouch on iPhone | Settings > Accessibility > Touch > AssistiveTouch > ON (for mouse/tap) |
+| One-time BLE pairing | iPhone sees "baremobile" in Bluetooth settings, tap to pair |
 
 ### Setup
 ```bash
+# USB bridge (screenshots, app lifecycle)
 ./scripts/ios-tunnel.sh setup    # first-time: reveal Developer Mode, enable WiFi
 ./scripts/ios-tunnel.sh          # start bridge: usbmuxd + tunnel + dev image mount
-npm run test:ios                 # 8 tests
+
+# BLE HID (input — spike in progress)
+sudo python3.12 test/ios/ble-hid-poc.py  # start GATT server, pair from iPhone
+
+# Tests
+npm run test:ios                 # 8 screenshot/lifecycle tests
 ```
+
+## MCP Server Integration
+
+baremobile includes an MCP server (`mcp-server.js`) for Claude Code and other MCP clients.
+
+### Setup
+```bash
+# Add to Claude Code
+claude mcp add baremobile -- node /path/to/baremobile/mcp-server.js
+
+# Or use .mcp.json in the project root (auto-detected)
+```
+
+### Tools (10)
+
+| Tool | Params | Returns |
+|------|--------|---------|
+| `snapshot` | `maxChars?` | YAML tree (or file path if >30K chars) |
+| `tap` | `ref` | `'ok'` |
+| `type` | `ref`, `text`, `clear?` | `'ok'` |
+| `press` | `key` | `'ok'` |
+| `scroll` | `ref`, `direction` | `'ok'` |
+| `swipe` | `x1`, `y1`, `x2`, `y2`, `duration?` | `'ok'` |
+| `long_press` | `ref` | `'ok'` |
+| `launch` | `pkg` | `'ok'` |
+| `screenshot` | — | base64 PNG (image content type) |
+| `back` | — | `'ok'` |
+
+### Convention
+Action tools return `'ok'` — call `snapshot` to observe the result. This matches the barebrowse MCP pattern.
+
+### Output artifacts
+Large snapshots saved to `.baremobile/screen-{timestamp}.yml` when exceeding `maxChars` (default 30,000).
 
 ## Error Recovery
 

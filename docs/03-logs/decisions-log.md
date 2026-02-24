@@ -40,6 +40,11 @@
 **Decision:** `termux-api.js` is independent from ADB. No screen control, direct API access only.
 **Why:** Different use case. Agent might just need to "send a text" without touching the screen. Complements ADB, doesn't replace it.
 
+## MCP tools: 10 screen-control only, Termux:API excluded
+**When:** Phase 3 design
+**Decision:** MCP server exposes 10 screen-control tools only. No Termux:API, no tapXY/tapGrid, no intent, no waitFor*.
+**Why:** Screen control is the core use case for MCP clients (Claude Code/Desktop). Termux:API is a separate concern (Termux-only, different audience). tapXY/tapGrid are vision fallbacks (agent should use refs). waitFor* is agent-side logic. intent is too low-level for most agents. Keep it focused — add more tools later if needed.
+
 ## bareagent comes last
 **When:** Roadmap restructuring
 **Decision:** Development order: core → termux → termux adb → MCP → CLI → bareagent → multis.

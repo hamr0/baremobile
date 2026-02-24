@@ -1,5 +1,29 @@
 # Changelog
 
+## 0.5.0
+
+MCP server — 10 screen-control tools over JSON-RPC 2.0 stdio.
+
+### New modules
+- `mcp-server.js` — MCP server for Claude Code and other MCP clients
+  - Raw JSON-RPC 2.0 over stdio, no SDK dependency
+  - 10 tools: snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back
+  - Singleton lazy session — `connect()` on first tool call, auto-detect ADB device
+  - Action tools return `'ok'`, agent calls snapshot to observe
+  - Screenshot returns MCP `image` content type (base64 PNG)
+  - Large snapshots (>30K chars) saved to `.baremobile/screen-{timestamp}.yml`
+- `.mcp.json` — MCP config file for auto-detection
+
+### Tests
+- 109 tests (93 unit + 16 integration), up from 94
+- New: `test/unit/mcp.test.js` (15) — tool definitions, JSON-RPC dispatch, saveSnapshot logic
+
+### Docs
+- system-state.md: Phase 3 MCP → DONE, updated module count (9) and test count (109)
+- prd.md: expanded Phase 3 roadmap with full tool list, session model, config
+- baremobile.context.md: added MCP Server Integration section
+- testing.md: added MCP test suite section, updated test pyramid counts
+
 ## 0.4.0
 
 Termux support — on-device control via localhost ADB + direct Android API access via Termux:API.
