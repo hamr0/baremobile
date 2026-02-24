@@ -51,21 +51,23 @@ Integration tests auto-skip when no ADB device is available.
 | Layer | Tested | How | Result |
 |-------|--------|-----|--------|
 | **Termux ADB** (`termux.js`) | Yes (emulator) | POC: `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → `connect({termux: true})` → snapshot + tap + launch | All work through localhost ADB |
-| **Termux:API** (`termux-api.js`) | No (unit only) | Requires physical device with Termux + Termux:API addon. Unit tests verify exports + ENOENT errors. | Awaiting real device validation |
+| **Termux:API** (`termux-api.js`) | Yes (emulator) | Sideloaded Termux + Termux:API on emulator, ran POC script inside Termux shell | batteryStatus, clipboardGet/Set, volume, wifiInfo, vibrate all return correct JSON |
 
-**To validate Termux:API on a real device:**
-1. Install Termux from F-Droid
-2. Install Termux:API addon from F-Droid
-3. `pkg install termux-api nodejs-lts`
-4. Copy baremobile to device, run:
-```js
-import * as api from './src/termux-api.js';
-console.log('available:', await api.isAvailable());
-console.log('battery:', await api.batteryStatus());
-console.log('clipboard:', await api.clipboardGet());
-await api.clipboardSet('test'); console.log('set:', await api.clipboardGet());
-console.log('contacts:', (await api.contactList()).length);
-console.log('wifi:', await api.wifiInfo());
+**Validated on emulator (API 35):**
+- Sideloaded `com.termux_1022.apk` + `com.termux.api_1002.apk` from F-Droid
+- `pkg install termux-api` inside Termux
+- POC script ran: battery (JSON), clipboard set+get, volume (6 streams), wifi info (JSON), vibrate — all passed
+- SMS/call/location/camera not tested (emulator limitations: no SIM, no GPS hardware)
+
+**To validate remaining commands on a real device:**
+```bash
+# In Termux on phone:
+termux-sms-send -n 5551234 "test"
+termux-sms-list -l 3
+termux-telephony-call 5551234
+termux-location -p network
+termux-camera-photo /sdcard/test.jpg
+termux-contact-list
 ```
 
 ### Manually verified E2E flows (documented in blueprint)
@@ -87,6 +89,7 @@ These were tested end-to-end on API 35 emulator and are too stateful/slow for au
 | Tap by coordinates | tapXY(540, 1200) on home screen |
 | Tap by grid cell | tapGrid('E10') → resolves + taps correctly |
 | Termux ADB (POC) | tcpip → forward → connect localhost → snapshot → launch Settings → tap → home |
+| Termux:API (POC) | Sideload Termux + Termux:API → battery, clipboard, volume, wifi, vibrate — all JSON |
 
 ## Writing new tests
 

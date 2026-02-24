@@ -31,8 +31,9 @@ Termux support — on-device control via localhost ADB + direct Android API acce
 - New: `test/unit/termux-api.test.js` (18) — exports validation, availability detection, ENOENT errors
 
 ### Verified
-- POC on emulator: `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → full snapshot + tap + launch through localhost ADB
-- Termux:API not yet validated on real device (requires Termux + Termux:API addon installed)
+- Termux ADB POC on emulator: `adb tcpip` → `adb forward` → `adb connect localhost:PORT` → full snapshot + tap + launch through localhost ADB
+- Termux:API POC on emulator: sideloaded Termux + Termux:API from F-Droid, validated batteryStatus (JSON), clipboardGet/Set, volume (6 streams), wifiInfo (JSON), vibrate
+- SMS/call/location/camera not tested on emulator (no SIM, no GPS hardware) — needs real device
 
 ### Docs
 - Blueprint: restructured roadmap (dev order: core → termux → termux adb → MCP → CLI → bareagent → multis)
