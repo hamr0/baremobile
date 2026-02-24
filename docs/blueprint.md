@@ -432,47 +432,65 @@ Your Android phone
 - Documented platform gaps (switch removal, transitional states) in context.md
 - Documented common intents, vision fallback pattern, waiting patterns in context.md
 
-### Phase 2: Termux transport (DONE)
-The key architectural addition. baremobile gets a second transport that runs ON the phone inside Termux, enabling autonomous remote control without USB/WiFi ADB.
+### Phase 2: Termux ADB setup (DONE)
+On-device control via Termux + localhost ADB. **Not a separate transport** — same `adb.js`, different serial.
 
-**Two purposes of baremobile:**
-1. **ADB mode** (Phase 1, done) — QA tool, USB or same-WiFi, controlled from computer
-2. **Termux mode** (Phase 2) — runs on the phone itself, autonomous agent control
+**Key insight:** Termux can't control the phone directly (no `INJECT_EVENTS` permission). But Termux can install `android-tools` and run `adb connect localhost:PORT` to reach wireless debugging. ADB provides the permission escalation. All existing code works unchanged — the serial is just `localhost:PORT` instead of `emulator-5554` or `192.168.1.5:5555`.
 
-**Architecture:**
-```
-baremobile/src/
-├── adb.js          ← ADB transport (existing — USB/WiFi)
-├── termux.js       ← NEW: Termux transport (on-device, no USB needed)
-├── xml.js          ← shared: XML parser
-├── prune.js        ← shared: pruning pipeline
-├── aria.js         ← shared: YAML formatter
-├── interact.js     ← shared: interaction primitives
-└── index.js        ← connect() routes to ADB or Termux transport
-```
+**What `termux.js` does:** detect Termux environment, find/connect localhost ADB devices, provide setup instructions. It's a setup helper, not a transport.
 
-**Shared modules** (xml, prune, aria, interact) work with both transports. The transport just provides "run shell command" and "get XML dump."
+**What `connect({termux: true})` does:** calls `resolveTermuxDevice()` to get a `localhost:PORT` serial, then passes it to the standard ADB flow. Auto-detects Termux when no device is specified.
 
-**Termux transport approach (try in order):**
-1. Termux installs `android-tools`, runs `adb connect localhost:5555` (wireless debugging) — reuses all existing ADB commands against localhost
-2. If ADB-to-localhost fails: call `uiautomator` and `input` directly from Termux shell (may need `run-as` or root)
-3. Fallback: Termux accessibility service or screenshot-only mode
+**POC results (validated on emulator):**
+- `uiautomator dump` via localhost ADB: **works**
+- `input tap` via localhost ADB: **works**
+- Wireless debugging survives reboot: **no** — must re-enable after each reboot
+- Permissions: wireless debugging must be enabled manually in Developer Options
 
-**POC must answer:**
-- Can Termux run `uiautomator dump` via ADB-to-localhost?
-- Can Termux run `input tap` via ADB-to-localhost?
-- Does wireless debugging survive reboot?
-- What permissions are needed?
+**Two modes of baremobile (both use `adb.js`):**
 
-**Phase 2 deliverables:**
-- `src/termux.js` — Termux transport (shell commands without `adb` prefix if possible, or via localhost ADB)
-- `connect({transport: 'termux'})` option
-- HTTP server for remote access (bareagent/multis connects to this)
+| Mode | Where it runs | Serial | Setup |
+|------|--------------|--------|-------|
+| **ADB** | Host machine | USB serial, IP:port, emulator-* | USB debugging or `adb tcpip` |
+| **Termux** | On the phone | `localhost:PORT` | Wireless debugging + `adb pair` + `adb connect` |
+
+### Phase 2.5: Termux:API (TODO)
+Lightweight phone actions via [Termux:API](https://wiki.termux.com/wiki/Termux:API) — **no ADB required, no screen control.**
+
+Termux:API is a companion addon that exposes Android APIs as CLI commands. These are direct API calls, faster and more reliable than tapping through the UI. Useful when an agent just needs to "send a text" or "make a call."
+
+**Available actions (via `termux-*` commands):**
+
+| Command | What |
+|---------|------|
+| `termux-sms-send -n NUMBER "text"` | Send SMS |
+| `termux-sms-list` | Read SMS inbox |
+| `termux-telephony-call NUMBER` | Make a phone call |
+| `termux-location` | Get GPS location |
+| `termux-camera-photo file.jpg` | Take photo |
+| `termux-clipboard-get/set` | Read/write clipboard |
+| `termux-notification` | Show notification |
+| `termux-battery-status` | Battery info |
+| `termux-volume` | Set media/ring/alarm volume |
+| `termux-wifi-connectioninfo` | WiFi info |
+| `termux-contact-list` | List contacts |
+
+**What this is NOT:** UI automation. No screen reading, no tapping, no navigating apps. It's direct Android API access — complements ADB screen control, doesn't replace it.
+
+**Three levels of phone control:**
+
+| Level | Needs ADB | Screen control | Use case |
+|-------|-----------|----------------|----------|
+| **Termux:API** | No | No | SMS, calls, location, camera, clipboard — fast, reliable, no setup |
+| **ADB (from host)** | Yes (USB/WiFi) | Yes | QA, testing, development |
+| **ADB (from Termux)** | Yes (localhost) | Yes | Autonomous agent on phone |
+
+**Deliverables:** `src/termux-api.js` — thin wrappers around `termux-*` commands, exposed as page methods or standalone tools.
 
 ### Phase 3: bareagent adapter
 `src/bareagent.js` — `createMobileTools(opts)` → `{tools, close}` for [bareagent](https://www.npmjs.com/package/bare-agent) Loop.
 
-**bareagent imports the Termux transport, not ADB.** This is the autonomous agent path. multis consumes baremobile through bareagent tools. User messages multis from any messenger → multis LLM uses baremobile tools → phone responds.
+**bareagent uses `connect()` which auto-detects the environment.** On a host machine → ADB mode. Inside Termux → localhost ADB. Termux:API tools available as bonus when detected. multis consumes baremobile through bareagent tools. User messages multis from any messenger → multis LLM uses baremobile tools → phone responds.
 
 15 tools: snapshot, tap, tap_xy, tap_grid, type, press, scroll, long_press, swipe, launch, intent, screenshot, back, home, wait_for_text.
 
