@@ -429,104 +429,81 @@ Your Android phone
 - Documented platform gaps (switch removal, transitional states) in context.md
 - Documented common intents, vision fallback pattern, waiting patterns in context.md
 
-### Phase 2: bareagent adapter (primary integration path)
+### Phase 2: Termux transport (NEXT)
+The key architectural addition. baremobile gets a second transport that runs ON the phone inside Termux, enabling autonomous remote control without USB/WiFi ADB.
+
+**Two purposes of baremobile:**
+1. **ADB mode** (Phase 1, done) — QA tool, USB or same-WiFi, controlled from computer
+2. **Termux mode** (Phase 2) — runs on the phone itself, autonomous agent control
+
+**Architecture:**
+```
+baremobile/src/
+├── adb.js          ← ADB transport (existing — USB/WiFi)
+├── termux.js       ← NEW: Termux transport (on-device, no USB needed)
+├── xml.js          ← shared: XML parser
+├── prune.js        ← shared: pruning pipeline
+├── aria.js         ← shared: YAML formatter
+├── interact.js     ← shared: interaction primitives
+└── index.js        ← connect() routes to ADB or Termux transport
+```
+
+**Shared modules** (xml, prune, aria, interact) work with both transports. The transport just provides "run shell command" and "get XML dump."
+
+**Termux transport approach (try in order):**
+1. Termux installs `android-tools`, runs `adb connect localhost:5555` (wireless debugging) — reuses all existing ADB commands against localhost
+2. If ADB-to-localhost fails: call `uiautomator` and `input` directly from Termux shell (may need `run-as` or root)
+3. Fallback: Termux accessibility service or screenshot-only mode
+
+**POC must answer:**
+- Can Termux run `uiautomator dump` via ADB-to-localhost?
+- Can Termux run `input tap` via ADB-to-localhost?
+- Does wireless debugging survive reboot?
+- What permissions are needed?
+
+**Phase 2 deliverables:**
+- `src/termux.js` — Termux transport (shell commands without `adb` prefix if possible, or via localhost ADB)
+- `connect({transport: 'termux'})` option
+- HTTP server for remote access (bareagent/multis connects to this)
+
+### Phase 3: bareagent adapter
 `src/bareagent.js` — `createMobileTools(opts)` → `{tools, close}` for [bareagent](https://www.npmjs.com/package/bare-agent) Loop.
 
-This is the primary integration path. multis consumes baremobile through bareagent tools as part of its autonomous agentic flow. User messages multis from any messenger → multis LLM uses baremobile tools → phone responds.
+**bareagent imports the Termux transport, not ADB.** This is the autonomous agent path. multis consumes baremobile through bareagent tools. User messages multis from any messenger → multis LLM uses baremobile tools → phone responds.
 
-Planned tools:
-| Tool | Description |
-|------|-------------|
-| `snapshot` | Take accessibility snapshot |
-| `tap` | Tap element by ref |
-| `tap_xy` | Tap by pixel coordinates (vision fallback) |
-| `tap_grid` | Tap by grid cell label |
-| `type` | Type text into element |
-| `press` | Press key (back, home, enter, etc.) |
-| `scroll` | Scroll within element |
-| `long_press` | Long press element |
-| `swipe` | Raw swipe gesture |
-| `launch` | Launch app by package name |
-| `intent` | Deep navigation via Android intent |
-| `screenshot` | Take screenshot (base64 PNG) |
-| `back` | Navigate back |
-| `home` | Go to home screen |
-| `wait_for_text` | Poll until text appears on screen |
+15 tools: snapshot, tap, tap_xy, tap_grid, type, press, scroll, long_press, swipe, launch, intent, screenshot, back, home, wait_for_text.
 
-Action tools auto-return snapshot after 300ms settle (same pattern as barebrowse bareagent adapter). Agent calls one tool, gets updated view back automatically.
+Action tools auto-return snapshot after 300ms settle (same pattern as barebrowse bareagent adapter).
 
-### Phase 3: MCP server (secondary — for Claude Code/Desktop users)
-`mcp-server.js` — JSON-RPC 2.0 over stdio, same as barebrowse. No SDK dependency.
-
-Same tool set as bareagent adapter but following MCP conventions:
-- Action tools return `"ok"`, agent calls `snapshot` explicitly
-- Device selection via `connect` tool or auto-detect
+### Phase 4: MCP server (for Claude Code/Desktop users)
+`mcp-server.js` — JSON-RPC 2.0 over stdio, same as barebrowse. Uses ADB transport (local QA/dev use case).
 
 Config for Claude Code:
 ```bash
 claude mcp add baremobile -- npx baremobile mcp
 ```
 
-Config for Claude Desktop / Cursor:
-```json
-{
-  "mcpServers": {
-    "baremobile": {
-      "command": "npx",
-      "args": ["baremobile", "mcp"]
-    }
-  }
-}
-```
+### Phase 5: CLI session mode
+`cli.js` + `src/daemon.js` + `src/session-client.js` — same architecture as barebrowse CLI. Uses ADB transport.
 
-Note: MCP is for developers using Claude Code directly. The primary user-facing path is multis → bareagent → baremobile (Phase 2).
-
-### Phase 4: CLI session mode
-`cli.js` + `src/daemon.js` + `src/session-client.js` — same architecture as barebrowse CLI.
-
-```bash
-baremobile open                          # Connect to device, start session
-baremobile snapshot                      # Dump → .baremobile/page-*.yml
-baremobile tap 5                         # Tap by ref
-baremobile type 3 "hello world"          # Type into ref
-baremobile press back                    # Press key
-baremobile screenshot                    # → .baremobile/screenshot-*.png
-baremobile launch com.android.settings   # Open app
-baremobile close                         # End session
-```
-
-Daemon holds the session (device serial, refMap). Output files go to `.baremobile/`. Agents read them with file tools.
-
-Skill file for Claude Code: `.claude/skills/baremobile/SKILL.md`
-
-### Phase 5: WebView CDP bridge
-The unique differentiator. When an app has a debug-enabled WebView, attach via CDP and use barebrowse's full ARIA + pruning pipeline inside it.
+### Phase 6: WebView CDP bridge
+When an app has a debug-enabled WebView, attach via CDP and use barebrowse's ARIA + pruning pipeline inside it.
 
 ```bash
 adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>
 ```
 
-This bridges the native ↔ web gap that every other Android agent tool struggles with:
-- Native parts: uiautomator tree (baremobile)
-- WebView parts: CDP ARIA tree (barebrowse)
-- Unified: single snapshot combining both
+Native parts: uiautomator tree (baremobile). WebView parts: CDP ARIA tree (barebrowse). Unified snapshot.
 
-Discovery: scan `/proc/*/cmdline` or `cat /proc/net/unix` for `webview_devtools_remote_*` sockets. Requires the app to have called `WebView.setWebContentsDebuggingEnabled(true)` (common in debug builds).
-
-### Phase 6: Advanced interactions
-- `pinch(ref, scale)` — multi-touch via `sendevent` (requires device-specific input device discovery)
+### Phase 7: Advanced interactions
+- `pinch(ref, scale)` — multi-touch via `sendevent`
 - `drag(fromRef, toRef)` — drag between two elements
 - `clipboard(text)` — set clipboard content via `am broadcast`
 - `notification()` — expand notification shade, snapshot, interact
-- `rotate(orientation)` — set screen orientation
-- `install(apkPath)` — install APK via `adb install`
-- `uninstall(pkg)` — uninstall app
 
-### Phase 7: Multi-device
-- `listDevices()` already supports multi-device (filters ready devices)
-- `connect({device: 'emulator-5554'})` already accepts specific serial
-- Future: parallel sessions across multiple devices
-- Future: device farm support (USB hub or cloud emulators)
+### Phase 8: Multi-device
+- Parallel sessions across multiple devices
+- Device farm support (USB hub or cloud emulators)
 
 ---
 
