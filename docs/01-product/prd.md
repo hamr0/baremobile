@@ -746,20 +746,35 @@ scripts/ios-ax.py --rsd HOST PORT dump    → JSON array of elements
 
 **Key difference from Android:** iOS snapshot is flat (no tree hierarchy) because `iter_elements()` returns a sequential walk. Still has `[ref=N]` markers, labels, roles — agents use the same read→pick→act pattern.
 
+### Phase 2.96: iOS — Open Items
+
+Known issues to resolve before iOS is production-ready:
+
+| Item | Status | Description |
+|------|--------|-------------|
+| **Screenshot blackout** | OPEN | `snapshot()` (AccessibilityAudit connection) causes the current app to render black. Screenshots taken after snapshot show a black screen. Workaround: small cursor nudge after snapshot, or take screenshot before snapshot. Root cause: pymobiledevice3 AccessibilityAudit interferes with app rendering. |
+| **WiFi tunnel** | OPEN | `remote start-tunnel --connection-type wifi` fails with "Device is not connected". Needs `remote pair` (one-time USB) and phone must be unlocked on same network. USB tunnel works reliably. |
+| **Grid layout navigation** | OPEN | `tap(ref)` uses Tab+Down+Space which only works for list-based UIs. Grid layouts (Calculator, home screen app grid) need arrow key grid navigation (Up/Down/Left/Right). Need to detect layout type from tree structure and use appropriate navigation. |
+| **Overlay/dialog mismatch** | OPEN | `iter_elements()` can read UI behind dialogs/overlays, causing ref mismatch between tree and actual keyboard focus. Need overlay detection or focus state verification. |
+| **Back navigation** | OPEN | No reliable "go back" — Escape navigates back but also exits apps. Need Cmd+H (home) and reliable back gesture via BLE. |
+
 ### Phase 2.10: iOS — QA module
 
-Full QA automation loop for iOS using accessibility snapshots + vision fallback:
+Full QA automation loop for iOS using accessibility snapshots + Full Keyboard Access:
 
-| Feature | How |
-|---------|-----|
-| UI navigation | `snapshot()` → find element by label → `tap(ref)` |
-| Text input | `type(text)` via BLE HID keyboard |
-| Visual verification | `screenshot()` + vision model for pixel-level checks |
-| Cross-platform suites | Same `snapshot()` → `tap(ref)` pattern on both Android and iOS |
-| Wait for state | `waitForText('Success', 5000)` polls accessibility tree |
-| Vision fallback | `tapXY(x, y)` via BLE mouse when accessibility tree isn't enough |
+| Feature | How | Status |
+|---------|-----|--------|
+| UI navigation (lists) | `snapshot()` → find element → `tap(ref)` via Tab+Down+Space | **WORKING** |
+| UI navigation (grids) | `snapshot()` → calculate grid position → arrow keys | TODO |
+| Text input | `type(text)` via BLE HID keyboard | **WORKING** |
+| Visual verification | `screenshot()` + vision model for pixel-level checks | **WORKING** |
+| Cross-platform suites | Same `snapshot()` → `tap(ref)` pattern on both Android and iOS | **WORKING** (lists) |
+| Wait for state | `waitForText('Success', 5000)` polls accessibility tree | **WORKING** |
+| Vision fallback | `tapXY(x, y)` via BLE mouse when accessibility tree isn't enough | Available but imprecise |
 
-**Constraint:** iPhone must be on same WiFi network (or USB-connected) and unlocked. The tunnel script manages the connection. QA tester runs `./scripts/ios-tunnel.sh --wifi` once, then tests run.
+**Prerequisite:** Full Keyboard Access must be enabled on iPhone (Settings > Accessibility > Keyboards > Full Keyboard Access → ON).
+
+**Constraint:** iPhone must be USB-connected (WiFi tunnel not yet reliable) and unlocked. The tunnel script manages the connection.
 
 ### Phase 3: MCP server (DONE)
 `mcp-server.js` — JSON-RPC 2.0 over stdio, same pattern as barebrowse. 10 screen-control tools, no SDK dependency.
