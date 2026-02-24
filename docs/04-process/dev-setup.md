@@ -244,32 +244,36 @@ sudo dnf install -y usbmuxd
 # Set ControllerMode = le in /etc/bluetooth/main.conf for BLE peripheral mode
 ```
 
-### iPhone setup (one-time)
+### iPhone setup (one-time, USB required)
 
 ```bash
 # 1. Connect iPhone via USB, tap "Trust This Computer" on phone
 python3.12 -m pymobiledevice3 usbmux list   # verify connection
 
-# 2. Reveal Developer Mode toggle (iOS 16+ hides it by default)
-python3.12 -m pymobiledevice3 amfi reveal-developer-mode
+# 2. Run the setup script (reveals dev mode, enables WiFi, pairs for remote access)
+./scripts/ios-tunnel.sh setup
 # Then on iPhone: Settings > Privacy & Security > Developer Mode > ON > restart
 
-# 3. Start tunnel (iOS 17+ requires this — separate terminal, must stay running)
-#    Option A: lockdown tunnel (simpler, tested working)
+# 3. Start bridge (pick one)
+./scripts/ios-tunnel.sh              # USB tunnel + BLE HID
+./scripts/ios-tunnel.sh --wifi       # WiFi tunnel + BLE HID (cable-free)
+./scripts/ios-tunnel.sh --no-ble     # tunnel only, no BLE
+
+# 4. Verify
+python3.12 scripts/ios-ax.py --rsd $(cat /tmp/ios-rsd-address) dump   # accessibility dump
+npm run test:ios                     # full test suite
+```
+
+#### Manual tunnel (without setup script)
+
+```bash
+# USB tunnel
 sudo PYTHONPATH=$HOME/.local/lib/python3.12/site-packages \
   python3.12 -m pymobiledevice3 lockdown start-tunnel
-#    → Note the RSD Address and Port printed (e.g. fd07:add5:d1db::1 62584)
-#
-#    Option B: tunneld daemon (auto-discovers devices)
-# sudo PYTHONPATH=$HOME/.local/lib/python3.12/site-packages \
-#   python3.12 -m pymobiledevice3 remote tunneld
 
-# 4. Mount developer disk image (one-time per boot, phone must be unlocked)
-python3.12 -m pymobiledevice3 mounter auto-mount
-
-# 5. Take a screenshot (use --rsd from step 3)
-python3.12 -m pymobiledevice3 developer dvt screenshot /tmp/iphone-test.png \
-  --rsd fd07:add5:d1db::1 62584
+# WiFi tunnel (after remote pair)
+sudo PYTHONPATH=$HOME/.local/lib/python3.12/site-packages \
+  python3.12 -m pymobiledevice3 remote start-tunnel --connection-type wifi --protocol tcp
 ```
 
 ### BLE HID setup
@@ -343,22 +347,32 @@ After pairing, the iPhone reconnects automatically when the GATT server starts.
 # Validate prerequisites (no tunnel needed)
 npm run ios:check
 
-# Run spike tests (requires tunnel running + RSD_ADDRESS set)
+# Start bridge first (writes RSD address to /tmp/ios-rsd-address)
+./scripts/ios-tunnel.sh --wifi    # or without --wifi for USB
+
+# Run iOS tests
+npm run test:ios
+
+# Or set RSD manually
 RSD_ADDRESS="fd07:add5:d1db::1 62584" npm run test:ios
 ```
 
 > **RSD_ADDRESS** format: `"host port"` (space-separated, IPv6 safe).
-> Get the values from `lockdown start-tunnel` output.
+> The tunnel script writes this automatically to `/tmp/ios-rsd-address`.
 
 ### Test files
 
 ```
+test/unit/ios.test.js         # Unit tests (21 tests): formatSnapshot, caption parsing, RSD, BLE commands
 test/ios/
-  check-prerequisites.js   # prerequisite validator: python, pymobiledevice3, usbmuxd,
-                            # device connection, developer mode, tunneld
-  screenshot.test.js        # pymobiledevice3 tests (8 tests): detect device, lockdown info,
-                            # dev mode status, mount image, screenshot, process list, app lifecycle, latency
-  ble-hid-poc.py            # BLE HID GATT server (Python, BlueZ D-Bus)
-  ble-hid.test.js           # BLE HID tests (Node.js wrapper): adapter, keyboard, mouse
-  integration.test.js       # Integration tests (6 tests): screenshot → BLE tap → type → verify
+  check-prerequisites.js      # prerequisite validator: python, pymobiledevice3, usbmuxd
+  ios-connect.test.js         # Integration (7 tests): snapshot, tap(ref), waitForText, full loop
+  screenshot.test.js          # pymobiledevice3 tests (8 tests): screenshot, app lifecycle, latency
+  ble-hid-poc.py              # BLE HID GATT server (Python, BlueZ D-Bus)
+  ble-hid.test.js             # BLE HID tests: adapter, keyboard, mouse
+  integration.test.js         # Legacy integration (6 tests): screenshot → BLE tap → type → verify
+
+scripts/
+  ios-tunnel.sh               # Bridge script: USB/WiFi tunnel + BLE HID
+  ios-ax.py                   # Accessibility helper: dump elements + focus navigation
 ```

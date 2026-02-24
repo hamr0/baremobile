@@ -1,5 +1,6 @@
 import { describe, it, beforeEach, afterEach, mock } from 'node:test';
 import assert from 'node:assert/strict';
+import { formatSnapshot } from '../../src/ios.js';
 
 // We test the module's internal logic by mocking child_process and fs.
 // Since src/ios.js uses dynamic imports and top-level module state,
@@ -127,6 +128,59 @@ describe('iOS module — unit tests', () => {
       const x1 = 187, y1 = 800, x2 = 187, y2 = 300;
       assert.equal(x1, x2, 'should be vertical swipe');
       assert.ok(y1 > y2, 'should swipe upward');
+    });
+  });
+
+  describe('formatSnapshot()', () => {
+    it('should format elements as YAML with [ref=N] markers', () => {
+      const elements = [
+        { ref: 0, label: 'Settings', role: 'Header', value: null, traits: [] },
+        { ref: 1, label: 'Wi-Fi', role: 'Button', value: 'vanCampers', traits: [] },
+      ];
+      const yaml = formatSnapshot(elements);
+      assert.match(yaml, /- Header \[ref=0\] "Settings"/);
+      assert.match(yaml, /- Button \[ref=1\] "Wi-Fi" \(vanCampers\)/);
+    });
+
+    it('should use View as default role when role is empty', () => {
+      const elements = [{ ref: 0, label: 'Back', role: '', value: null, traits: [] }];
+      const yaml = formatSnapshot(elements);
+      assert.match(yaml, /^- View \[ref=0\] "Back"$/);
+    });
+
+    it('should include traits in brackets', () => {
+      const elements = [{ ref: 0, label: 'Done', role: 'Button', value: null, traits: ['Selected'] }];
+      const yaml = formatSnapshot(elements);
+      assert.match(yaml, /\[Selected\]/);
+    });
+
+    it('should handle empty elements array', () => {
+      assert.equal(formatSnapshot([]), '');
+    });
+
+    it('should handle element with no label', () => {
+      const elements = [{ ref: 0, label: '', role: 'Image', value: null, traits: [] }];
+      const yaml = formatSnapshot(elements);
+      assert.equal(yaml, '- Image [ref=0]');
+    });
+
+    it('should handle element with value and traits', () => {
+      const elements = [{ ref: 0, label: 'Volume', role: 'Slider', value: '50%', traits: ['Adjustable'] }];
+      const yaml = formatSnapshot(elements);
+      assert.match(yaml, /- Slider \[ref=0\] "Volume" \(50%\) \[Adjustable\]/);
+    });
+
+    it('should number refs sequentially', () => {
+      const elements = [
+        { ref: 0, label: 'A', role: 'Button', value: null, traits: [] },
+        { ref: 1, label: 'B', role: 'Button', value: null, traits: [] },
+        { ref: 2, label: 'C', role: 'Button', value: null, traits: [] },
+      ];
+      const yaml = formatSnapshot(elements);
+      assert.match(yaml, /\[ref=0\]/);
+      assert.match(yaml, /\[ref=1\]/);
+      assert.match(yaml, /\[ref=2\]/);
+      assert.equal(yaml.split('\n').length, 3);
     });
   });
 

@@ -11,6 +11,7 @@ const PMD3_PYTHON = 'python3.12';
 const BLE_PYTHON = 'python3';
 const RSD_FILE = '/tmp/ios-rsd-address';
 const POC_SCRIPT = new URL('../test/ios/ble-hid-poc.py', import.meta.url).pathname;
+const AX_SCRIPT = new URL('../scripts/ios-ax.py', import.meta.url).pathname;
 
 // --- RSD tunnel resolution ---
 
@@ -68,6 +69,65 @@ async function takeScreenshot(pythonBin, rsdArgs) {
   const buf = await readF(outPath);
   await unlink(outPath).catch(() => {});
   return buf;
+}
+
+// --- Accessibility snapshot ---
+
+// iPhone screen layout constants (points, 3x Retina)
+const SCREEN_W = 375;     // logical width in points
+const SCREEN_H = 812;     // logical height in points
+
+// BLE mouse coordinate calibration (iPhone 13 mini, Settings)
+// BLE mouse units ≠ screen points — cursor acceleration means ~3-4x scaling.
+// Calibrated by probing: ref=1 ~200, ref=3 ~500, ref=5 ~600, ref=8 ~800.
+// Regular rows (ref>=3): Y = 500 + (ref - 3) * 50
+const BLE_ROW_START = 500;  // BLE Y for first regular row (ref=3 in Settings)
+const BLE_ROW_H = 50;       // BLE Y units per row
+const BLE_X_CENTER = 187;   // center X in BLE coords
+
+/**
+ * Estimate BLE mouse tap coordinates for an element by ref index.
+ * Calibrated for list layouts (Settings, etc.).
+ * @param {number} ref — element index from snapshot
+ * @param {number} total — total element count (unused for now)
+ * @returns {{x: number, y: number}}
+ */
+export function estimateTapTarget(ref, total) {
+  if (ref === 0) return { x: BLE_X_CENTER, y: 80 };
+  if (ref === 1) return { x: BLE_X_CENTER, y: 200 };
+  if (ref === 2) return { x: BLE_X_CENTER, y: 320 };
+  // Regular rows from ref=3 onward
+  const y = BLE_ROW_START + (ref - 3) * BLE_ROW_H;
+  return { x: BLE_X_CENTER, y };
+}
+
+/**
+ * Format parsed accessibility elements as YAML with [ref=N] markers.
+ * Matches the Android snapshot format from aria.js.
+ * @param {Array<object>} elements — parsed from ios-ax.py dump
+ * @returns {string}
+ */
+export function formatSnapshot(elements) {
+  const lines = [];
+  for (const el of elements) {
+    let line = `- ${el.role || 'View'}`;
+    line += ` [ref=${el.ref}]`;
+    if (el.label) line += ` "${el.label}"`;
+    if (el.value) line += ` (${el.value})`;
+    if (el.traits && el.traits.length) line += ` [${el.traits.join(', ')}]`;
+    lines.push(line);
+  }
+  return lines.join('\n');
+}
+
+async function axDump(pythonBin, rsdArgs) {
+  const host = rsdArgs[1];
+  const port = rsdArgs[2];
+  const { stdout } = await execP(pythonBin, [AX_SCRIPT, '--rsd', host, port, 'dump'], {
+    timeout: 30_000,
+    maxBuffer: 10 * 1024 * 1024,
+  });
+  return JSON.parse(stdout);
 }
 
 // --- BLE HID Daemon ---
@@ -144,6 +204,18 @@ class BleHidDaemon {
     await this.sendAndWait('click', 200);
   }
 
+  async moveBy(dx, dy) {
+    this.send(`move ${dx} ${dy}`);
+    const maxDist = Math.max(Math.abs(dx), Math.abs(dy));
+    const steps = Math.ceil(maxDist / 10);
+    await new Promise(r => setTimeout(r, steps * 8 + 200));
+  }
+
+  async scroll(amount) {
+    this.send(`scroll ${amount}`);
+    await new Promise(r => setTimeout(r, Math.abs(amount) * 50 + 200));
+  }
+
   async tapXY(x, y) {
     await this.homeCursor();
     await this.moveTo(x, y);
@@ -211,6 +283,37 @@ export async function connect(opts = {}) {
     serial,
     platform: 'ios',
 
+    async snapshot() {
+      const elements = await axDump(pythonBin, rsdArgs);
+      return formatSnapshot(elements);
+    },
+
+    async tap(ref) {
+      const ble = await ensureBle();
+      // Full Keyboard Access: Escape resets, Tab enters list, Down navigates
+      await ble.pressKey('escape');
+      await new Promise(r => setTimeout(r, 300));
+      await ble.pressKey('tab');
+      await new Promise(r => setTimeout(r, 300));
+      // Down arrow to reach the target (Tab lands on first interactive = ref 1)
+      for (let i = 1; i < ref; i++) {
+        await ble.pressKey('down');
+        await new Promise(r => setTimeout(r, 200));
+      }
+      await ble.pressKey('space');
+      await new Promise(r => setTimeout(r, 500));
+    },
+
+    async waitForText(text, timeout = 10_000) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const snap = await page.snapshot();
+        if (snap.includes(text)) return snap;
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      throw new Error(`waitForText("${text}") timed out after ${timeout}ms`);
+    },
+
     async screenshot() {
       return takeScreenshot(pythonBin, rsdArgs);
     },
@@ -229,6 +332,23 @@ export async function connect(opts = {}) {
     async tapXY(x, y) {
       const ble = await ensureBle();
       await ble.tapXY(x, y);
+    },
+
+    async moveCursor(dx, dy) {
+      const ble = await ensureBle();
+      await ble.moveBy(dx, dy);
+    },
+
+    async dwellTap(dx, dy, dwellMs = 1800) {
+      const ble = await ensureBle();
+      await ble.moveBy(dx, dy);
+      await new Promise(r => setTimeout(r, dwellMs));
+    },
+
+    async scroll(direction, amount = 3) {
+      const ble = await ensureBle();
+      const val = direction === 'up' ? amount : -amount;
+      await ble.scroll(val);
     },
 
     async type(text) {

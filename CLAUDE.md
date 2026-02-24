@@ -20,3 +20,7 @@
 - **Modules:** 8 files in `src/`, zero required deps
 - **Tests:** 94 passing — run with `node --test test/unit/*.test.js test/integration/*.test.js`
 - **Docs:** `docs/README.md` (navigation guide to all documentation)
+
+<!-- MEMORY:START -->
+@MEMORY.md
+<!-- MEMORY:END -->

@@ -129,6 +129,32 @@ CHAR_TO_KEYCODE[','] = (0, 0x36)
 CHAR_TO_KEYCODE['.'] = (0, 0x37)
 CHAR_TO_KEYCODE['/'] = (0, 0x38)
 
+# Named special keys (HID usage IDs)
+SPECIAL_KEYS = {
+    'enter': (0, 0x28),       # Return/Enter
+    'return': (0, 0x28),
+    'escape': (0, 0x29),
+    'esc': (0, 0x29),
+    'backspace': (0, 0x2A),
+    'delete': (0, 0x2A),
+    'tab': (0, 0x2B),
+    'space': (0, 0x2C),
+    'capslock': (0, 0x39),
+    'right': (0, 0x4F),       # Right Arrow
+    'left': (0, 0x50),        # Left Arrow
+    'down': (0, 0x51),        # Down Arrow
+    'up': (0, 0x52),          # Up Arrow
+    'home': (0, 0x4A),        # Home
+    'end': (0, 0x4D),         # End
+    'pageup': (0, 0x4B),
+    'pagedown': (0, 0x4E),
+    'f1': (0, 0x3A), 'f2': (0, 0x3B), 'f3': (0, 0x3C), 'f4': (0, 0x3D),
+    'f5': (0, 0x3E), 'f6': (0, 0x3F), 'f7': (0, 0x40), 'f8': (0, 0x41),
+    'f9': (0, 0x42), 'f10': (0, 0x43), 'f11': (0, 0x44), 'f12': (0, 0x45),
+    # Modifier combos for VoiceOver (Caps Lock = VO key on iOS)
+    'vo+space': (0x39, 0x2C),     # placeholder — handled specially below
+}
+
 SHIFT_CHARS = {
     'A': 'a', 'B': 'b', 'C': 'c', 'D': 'd', 'E': 'e', 'F': 'f', 'G': 'g',
     'H': 'h', 'I': 'i', 'J': 'j', 'K': 'k', 'L': 'l', 'M': 'm', 'N': 'n',
@@ -502,6 +528,12 @@ class Advertisement(dbus.service.Object):
 # --- Input functions ---
 
 def send_key(hid_service, char):
+    # Named special keys (enter, space, right, left, etc.)
+    if char.lower() in SPECIAL_KEYS:
+        modifier, keycode = SPECIAL_KEYS[char.lower()]
+        hid_service.kb_report.send_report([modifier, 0x00, keycode, 0, 0, 0, 0, 0])
+        GLib.timeout_add(80, lambda: hid_service.kb_report.send_report([0] * 8) or False)
+        return
     if char in SHIFT_CHARS:
         base = SHIFT_CHARS[char]
         modifier = 0x02  # Left Shift
@@ -518,6 +550,12 @@ def send_key(hid_service, char):
     GLib.timeout_add(80, lambda: hid_service.kb_report.send_report([0] * 8) or False)
 
 
+def send_hid(hid_service, modifier, keycode):
+    """Send raw HID report: modifier byte + keycode."""
+    hid_service.kb_report.send_report([modifier, 0x00, keycode, 0, 0, 0, 0, 0])
+    GLib.timeout_add(80, lambda: hid_service.kb_report.send_report([0] * 8) or False)
+
+
 def send_string(hid_service, text):
     for i, char in enumerate(text):
         GLib.timeout_add(i * 200, lambda c=char: send_key(hid_service, c) or False)
@@ -527,7 +565,7 @@ def send_string(hid_service, text):
 def move_mouse(hid_service, dx, dy):
     """Move mouse by sending rapid small-step reports (like a real mouse sensor).
     iOS clamps single-report movement — must send many small deltas at high frequency."""
-    STEP = 10  # units per report — small enough for iOS to accept full magnitude
+    STEP = 50  # units per report — larger steps for slow tracking settings
     INTERVAL = 8  # ms between reports (~125Hz, matches real mouse polling rate)
     steps = max(abs(dx), abs(dy), 1) // STEP or 1
     sx = dx / steps if steps else 0
@@ -548,6 +586,21 @@ def move_mouse(hid_service, dx, dy):
 def click(hid_service):
     hid_service.mouse_report.send_report([0x01, 0x00, 0x00, 0x00])
     GLib.timeout_add(80, lambda: hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
+
+
+def scroll(hid_service, amount):
+    """Scroll wheel: negative = scroll down, positive = scroll up."""
+    STEP = 1
+    INTERVAL = 50  # ms between scroll reports
+    steps = abs(amount)
+    direction = 1 if amount > 0 else -1
+    for i in range(steps):
+        val = direction * STEP
+        GLib.timeout_add(i * INTERVAL, lambda v=val:
+                         hid_service.mouse_report.send_report(
+                             [0x00, 0x00, 0x00, v & 0xFF]) or False)
+    GLib.timeout_add(steps * INTERVAL, lambda:
+                     hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
 
 
 # --- Main ---
@@ -686,12 +739,18 @@ def main():
             send_string(hid_service, ' '.join(parts[1:]))
         elif cmd == 'click':
             click(hid_service)
+        elif cmd == 'send_hid' and len(parts) >= 3:
+            send_hid(hid_service, int(parts[1], 0), int(parts[2], 0))
         elif cmd == 'move' and len(parts) >= 3:
             move_mouse(hid_service, int(parts[1]), int(parts[2]))
+        elif cmd == 'scroll' and len(parts) >= 2:
+            scroll(hid_service, int(parts[1]))
         elif cmd in ('quit', 'exit', 'q'):
             mainloop.quit()
         elif cmd == 'help':
-            print('  send_key <char> | send_string <text> | click | move <dx> <dy> | quit')
+            print('  send_key <char|name> | send_hid <mod> <keycode> | send_string <text>')
+            print('  click | move <dx> <dy> | scroll <amount> | quit')
+            print('  Named keys: enter, space, right, left, up, down, escape, tab, capslock, home, end, f1-f12')
         else:
             print(f'  Unknown: {cmd}. Type "help" for commands.')
 

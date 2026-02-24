@@ -4,10 +4,11 @@
 # Manages usbmuxd + lockdown tunnel + developer image mount + BLE HID.
 #
 # Usage:
-#   ./scripts/ios-tunnel.sh              # start bridge (usbmuxd + tunnel + BLE HID)
+#   ./scripts/ios-tunnel.sh              # start bridge (USB tunnel + BLE HID)
+#   ./scripts/ios-tunnel.sh --wifi       # start bridge over WiFi (cable-free)
 #   ./scripts/ios-tunnel.sh --no-ble     # start bridge without BLE HID
 #   ./scripts/ios-tunnel.sh stop         # stop bridge from PID files
-#   ./scripts/ios-tunnel.sh setup        # first-time: reveal dev mode + enable WiFi
+#   ./scripts/ios-tunnel.sh setup        # first-time: reveal dev mode + enable WiFi + remote pair
 #   ./scripts/ios-tunnel.sh check        # run prerequisite checker
 #
 # After starting, run tests with:
@@ -29,6 +30,7 @@ TUNNEL_PID=""
 USBMUXD_PID=""
 BLE_PID=""
 NO_BLE=false
+WIFI_MODE=false
 
 cleanup() {
   echo ""
@@ -86,53 +88,54 @@ mount_developer_image() {
 }
 
 start_tunnel() {
-  echo "[..] Starting lockdown tunnel (needs sudo)..."
-  # Run tunnel and capture output to extract RSD address
-  sudo PYTHONPATH="$PYTHONPATH_USER" $PYTHON -m pymobiledevice3 lockdown start-tunnel 2>&1 &
+  local tunnel_log="/tmp/ios-tunnel.log"
+  rm -f "$tunnel_log"
+
+  if $WIFI_MODE; then
+    echo "[..] Starting WiFi tunnel (needs sudo)..."
+    echo "     Enter sudo password if prompted:"
+    sudo true
+
+    sudo PYTHONPATH="$PYTHONPATH_USER" $PYTHON -m pymobiledevice3 remote start-tunnel --connection-type wifi --protocol tcp 2>&1 | tee "$tunnel_log" &
+  else
+    echo "[..] Starting lockdown tunnel (needs sudo)..."
+    echo "     Enter sudo password if prompted:"
+    sudo true
+
+    sudo PYTHONPATH="$PYTHONPATH_USER" $PYTHON -m pymobiledevice3 lockdown start-tunnel 2>&1 | tee "$tunnel_log" &
+  fi
   TUNNEL_PID=$!
   echo "$TUNNEL_PID" > "$TUNNEL_PID_FILE"
 
-  # Wait for tunnel to print RSD address
-  sleep 3
-  for i in $(seq 1 10); do
-    # Read from /proc to get tunnel output — check if tun interface appeared
-    if ip link show tun0 &>/dev/null; then
-      # Extract RSD from the tunnel's log — parse from process
-      local rsd_line
-      rsd_line=$(ip -6 addr show tun0 2>/dev/null | grep -oP 'inet6 \K[^/]+' | head -1)
-      if [ -n "$rsd_line" ]; then
-        # The RSD port is typically on the tunnel — get it from the process
-        # For now, use the standard approach
-        echo "[ok] Tunnel interface tun0 is up"
+  # Poll log file for RSD address
+  local rsd_addr=""
+  echo "[..] Waiting for tunnel to come up..."
+  for i in $(seq 1 30); do
+    if [ -f "$tunnel_log" ]; then
+      local addr port
+      addr=$(grep -oP 'RSD Address: \K\S+' "$tunnel_log" 2>/dev/null | head -1)
+      port=$(grep -oP 'RSD Port: \K\S+' "$tunnel_log" 2>/dev/null | head -1)
+      if [ -n "$addr" ] && [ -n "$port" ]; then
+        rsd_addr="$addr $port"
         break
       fi
     fi
     sleep 1
   done
 
-  # Try to discover the tunnel
-  local rsd_info
-  rsd_info=$(pmd3 remote browse 2>/dev/null || echo "{}")
-  local rsd_addr rsd_port
-  rsd_addr=$($PYTHON -c "
-import json,sys
-d=json.loads('''$rsd_info''')
-devs = d.get('usb',[]) + d.get('wifi',[])
-if devs: print(devs[0].get('address',''), devs[0].get('port',''))
-" 2>/dev/null || echo "")
-
   if [ -n "$rsd_addr" ]; then
     echo "$rsd_addr" > "$RSD_FILE"
     echo "[ok] RSD address: $rsd_addr (saved to $RSD_FILE)"
   else
-    echo "[info] Tunnel running but couldn't auto-detect RSD address."
-    echo "       Check the output above for 'RSD Address' and 'RSD Port', then:"
+    echo "[warn] Could not auto-detect RSD address after 30s."
+    echo "       If the tunnel printed an RSD address above, write it manually:"
     echo "       echo 'HOST PORT' > $RSD_FILE"
   fi
 }
 
 start_ble_hid() {
   echo "[..] Starting BLE HID (needs sudo)..."
+  sudo true  # credentials should already be cached from start_tunnel
   sudo PYTHONUNBUFFERED=1 $BLE_PYTHON "$POC_SCRIPT" &
   BLE_PID=$!
   echo "$BLE_PID" > "$BLE_PID_FILE"
@@ -179,11 +182,17 @@ cmd_setup() {
   pmd3 lockdown wifi-connections --state on
   echo "[ok] WiFi connections enabled"
 
+  echo "[..] Pairing for WiFi remote access..."
+  pmd3 remote pair
+  echo "[ok] WiFi remote pairing complete"
+
   echo ""
   echo "Done. On your iPhone:"
   echo "  Settings > Privacy & Security > Developer Mode > ON > Restart"
   echo ""
-  echo "After restart, run: ./scripts/ios-tunnel.sh"
+  echo "After restart, run:"
+  echo "  ./scripts/ios-tunnel.sh          # USB tunnel"
+  echo "  ./scripts/ios-tunnel.sh --wifi   # WiFi tunnel (cable-free)"
 }
 
 cmd_check() {
@@ -224,10 +233,14 @@ cmd_stop() {
 }
 
 cmd_start() {
-  echo "=== iOS Developer Bridge ==="
-  ensure_usbmuxd
-  wait_for_device
-  mount_developer_image
+  if $WIFI_MODE; then
+    echo "=== iOS Developer Bridge (WiFi) ==="
+  else
+    echo "=== iOS Developer Bridge ==="
+    ensure_usbmuxd
+    wait_for_device
+    mount_developer_image
+  fi
   start_tunnel
 
   if ! $NO_BLE; then
@@ -246,11 +259,12 @@ cmd_start() {
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-ble) NO_BLE=true; shift ;;
+    --wifi) WIFI_MODE=true; shift ;;
     setup) cmd_setup; exit 0 ;;
     check) cmd_check; exit 0 ;;
     stop) cmd_stop; exit 0 ;;
     start) shift; break ;;
-    *) echo "Usage: $0 [--no-ble] [setup|check|start|stop]"; exit 1 ;;
+    *) echo "Usage: $0 [--wifi] [--no-ble] [setup|check|start|stop]"; exit 1 ;;
   esac
 done
 

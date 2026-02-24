@@ -680,77 +680,86 @@ test/ios/
 
 Tools: BlueZ 5.56+, GATT server with HID Service (UUID 0x1812). Existing projects: btkbdd, EmuBTHID, HeadHodge HOGP gist.
 
-### Phase 2.9: iOS — baremobile-ios module (TODO)
+### Phase 2.9: iOS — baremobile-ios module (DONE)
 
-Three sub-phases: unified setup script → live speed test → JS module build. All underlying capabilities proven in Phase 2.7–2.8.
+Unified setup script + JS module wrapping pymobiledevice3 + BLE HID into baremobile's API pattern.
 
-#### 2.9.1: Unified setup script
-
-`./scripts/ios-tunnel.sh` — single command that starts both the USB tunnel (pymobiledevice3 lockdown) and the BLE HID GATT server. Replaces the current two-terminal workflow.
+`./scripts/ios-tunnel.sh` — single command that starts both the tunnel and the BLE HID GATT server.
 
 ```bash
-./scripts/ios-tunnel.sh          # starts tunnel + BLE HID, writes PID files
-./scripts/ios-tunnel.sh stop     # tears down both
+./scripts/ios-tunnel.sh              # USB tunnel + BLE HID
+./scripts/ios-tunnel.sh --wifi       # WiFi tunnel + BLE HID (cable-free)
+./scripts/ios-tunnel.sh --no-ble     # tunnel only, no BLE
+./scripts/ios-tunnel.sh setup        # first-time setup (dev mode + WiFi pair)
+./scripts/ios-tunnel.sh stop         # tear down
 ```
-
-Writes RSD address to `/tmp/ios-rsd-address` (existing convention). BLE HID server runs as background process. Prerequisites checked on startup (Python versions, BlueZ config, iPhone connected).
-
-#### 2.9.2: Live speed test
-
-`scripts/ios-live-test.js` — interactive test session that measures real-world latency for each operation with a live iPhone. Validates speed and robustness before building the module.
-
-| Measurement | Target | Why |
-|-------------|--------|-----|
-| Screenshot | <1.5s | Currently ~2.5s — test with persistent connection |
-| BLE tap at coordinates | <500ms | Currently ~1-2s — test with pre-connected HID |
-| BLE type string | <100ms/char | Currently ~200ms/char — test burst mode |
-| Screenshot → tap → screenshot loop | <5s | Full agent cycle time budget |
-
-Strategy: persistent pymobiledevice3 connections (avoid per-call tunnel setup), pre-connected BLE HID (skip pairing overhead), cursor position tracking (avoid full-screen traversal for mouse moves).
-
-#### 2.9.3: JS module (`src/ios.js`)
-
-Wrap pymobiledevice3 + BLE HID into a JS module matching baremobile's API pattern.
 
 ```js
-import { connect } from 'baremobile/ios';
+import { connect } from 'baremobile/src/ios.js';
 
-const page = await connect();           // auto-detect iPhone via usbmux
-const png = await page.screenshot();    // pymobiledevice3 dvt screenshot
-await page.launch('com.apple.Preferences');  // pymobiledevice3 dvt launch
-await page.tapXY(200, 400);            // BLE HID mouse click
-await page.type('hello');              // BLE HID keyboard
-await page.press('home');              // BLE HID key
-page.close();                          // tear down connections
+const page = await connect();
+const png = await page.screenshot();             // pymobiledevice3
+await page.launch('com.apple.Preferences');
+await page.tapXY(200, 400);                     // BLE HID mouse
+await page.type('hello');                        // BLE HID keyboard
+page.close();
 ```
 
-**API surface:** `connect()` → page object with `screenshot()`, `launch(bundleId)`, `kill(bundleId)`, `tapXY(x, y)`, `type(text)`, `press(key)`, `close()`. No `snapshot()` — iOS is vision-based.
+**API surface:** `connect()` → page object with `screenshot()`, `launch(bundleId)`, `kill(pid)`, `tapXY(x, y)`, `type(text)`, `press(key)`, `swipe()`, `back()`, `home()`, `longPressXY()`, `close()`.
 
-**Speed strategy:**
-- Persistent pymobiledevice3 connection — reuse tunnel across calls instead of spawning per command
-- Persistent BLE HID connection — keep GATT server running, track cursor position
-- Screenshot-first mapping — agent screenshots → vision model → coordinates → BLE tap
+### Phase 2.95: iOS — Cable-Free (WiFi + Accessibility Snapshot) (DONE)
 
-**Key difference from Android:** No `page.snapshot()` with accessibility tree. iOS control is vision-based — screenshot → send to LLM → get coordinates → tap. Agent needs a vision model in the loop.
+Cable-free iOS automation: WiFi tunnel replaces USB, accessibility tree replaces screenshot-only navigation.
 
-### Phase 2.10: iOS — QA module (vision-based automation)
+**Key discoveries:**
+- pymobiledevice3 `AccessibilityAudit.iter_elements()` returns every UI element (labels, roles, states)
+- **Full Keyboard Access + BLE HID keyboard = reliable `tap(ref)`** — Tab enters list group, Down×N navigates to element, Space activates. No mouse coordinates, no VoiceOver needed.
+- `move_focus(direction)` moves inspector focus only (not real VoiceOver focus) — can't activate elements
+- `perform_press()` silently fails (requires Xcode-only `task_for_pid-allow` entitlement)
+- BLE mouse coordinate mapping is unreliable due to iOS cursor acceleration
+- WiFi tunnel fully supported: `remote start-tunnel --connection-type wifi`
 
-Full QA automation loop for iOS:
+**Cable-free stack:** WiFi (pymobiledevice3 tunnel) + Bluetooth (BLE HID keyboard).
 
+```js
+const page = await connect();
+const snap = await page.snapshot();      // accessibility tree as YAML
+// - Header [ref=0] "Settings"
+// - Button [ref=1] "Amr Hassan" (Apple Account)
+// - Button [ref=4] "Wi-Fi" (vanCampers)
+
+await page.tap(4);                       // Tab + 3×Down + Space via BLE keyboard
+await page.waitForText('Wi-Fi', 10000);  // poll until text appears
 ```
-screenshot → LLM (describe screen / find element) → BLE tap → screenshot → verify
+
+**New API:** `snapshot()`, `tap(ref)`, `waitForText(text, timeout)`, `moveCursor(dx, dy)`, `scroll(direction, amount)`.
+
+**Architecture:**
 ```
+scripts/ios-ax.py --rsd HOST PORT dump    → JSON array of elements
+```
+
+`snapshot()` calls ios-ax.py dump → parses JSON → formats YAML with `[ref=N]` markers (same pattern as Android).
+`tap(ref)` uses Full Keyboard Access: Escape (reset) → Tab (enter list) → Down×(ref-1) (navigate) → Space (activate). Sent via BLE HID keyboard — no mouse, no VoiceOver.
+
+**Prerequisite:** Enable Full Keyboard Access on the iPhone: Settings > Accessibility > Keyboards > Full Keyboard Access → ON.
+
+**Key difference from Android:** iOS snapshot is flat (no tree hierarchy) because `iter_elements()` returns a sequential walk. Still has `[ref=N]` markers, labels, roles — agents use the same read→pick→act pattern.
+
+### Phase 2.10: iOS — QA module
+
+Full QA automation loop for iOS using accessibility snapshots + vision fallback:
 
 | Feature | How |
 |---------|-----|
-| Visual regression | Screenshot comparison across builds |
-| User flow testing | Vision-guided: screenshot → "find the login button" → tap coordinates |
-| App launch/kill orchestration | pymobiledevice3 — same as Android's `adb am start/force-stop` |
-| Cross-platform test suites | Same test logic, Android via `page.snapshot()`, iOS via `page.screenshot()` + LLM |
-| Device state monitoring | Battery, network, processes via pymobiledevice3 lockdown |
-| Log collection | Syslog, crash reports via pymobiledevice3 |
+| UI navigation | `snapshot()` → find element by label → `tap(ref)` |
+| Text input | `type(text)` via BLE HID keyboard |
+| Visual verification | `screenshot()` + vision model for pixel-level checks |
+| Cross-platform suites | Same `snapshot()` → `tap(ref)` pattern on both Android and iOS |
+| Wait for state | `waitForText('Success', 5000)` polls accessibility tree |
+| Vision fallback | `tapXY(x, y)` via BLE mouse when accessibility tree isn't enough |
 
-**Constraint:** iPhone must be USB-connected and unlocked. The tunnel script manages usbmuxd + lockdown tunnel. QA tester runs `./scripts/ios-tunnel.sh` once, then tests run.
+**Constraint:** iPhone must be on same WiFi network (or USB-connected) and unlocked. The tunnel script manages the connection. QA tester runs `./scripts/ios-tunnel.sh --wifi` once, then tests run.
 
 ### Phase 3: MCP server (DONE)
 `mcp-server.js` — JSON-RPC 2.0 over stdio, same pattern as barebrowse. 10 screen-control tools, no SDK dependency.
@@ -890,16 +899,18 @@ Key requirements discovered:
 | App kill | Working | ~4s |
 | Process list | Working | ~26s (1 MB output) |
 | Device info | Working | ~2s |
-| WiFi (no cable) | Failed | Apple requires separate WiFi remote pairing on iOS 17+ |
+| WiFi tunnel | **Working** | Same as USB — after `remote pair` setup |
+| Accessibility dump | **Working** | `iter_elements()` returns all UI elements |
+| Focus navigation | **Working** | Full Keyboard Access: Tab+Down+Space activates any element by ref |
 
 #### Constraints
 
-- **USB cable required** — WiFi not proven on iOS 17+
+- **One-time USB required** — initial pairing and `remote pair` for WiFi access, then cable-free
 - **Phone must be unlocked** for developer image mount + screenshots
 - **One-time setup needs hands on phone** — trust prompt, Developer Mode toggle, restart
 - **Tunnel process needs sudo** — creates TUN interface for developer services
 - **Python 3.12 required** — pymobiledevice3 dependency, 3.14 has build failures
-- **No accessibility tree** — pymobiledevice3 can't dump the a11y tree on production apps. Vision-only (screenshot → LLM).
+- **Accessibility tree is flat** — `iter_elements()` returns sequential elements, not a hierarchy. Still has labels, roles, values.
 
 #### What you DON'T need (vs WDA/Appium path)
 

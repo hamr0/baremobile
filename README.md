@@ -23,7 +23,7 @@ No Appium. No Java server. No Espresso. Zero dependencies. Same patterns as [bar
 
 **Android:** Full screen control via ADB -- from a host machine or on-device via Termux. Plus direct device APIs (SMS, calls, GPS, camera, clipboard) through Termux:API.
 
-**iOS:** Screenshots over USB, app launch/kill. BLE HID input (Bluetooth keyboard/mouse) in progress. No Mac, no Xcode required.
+**iOS:** Same `snapshot()` → `tap(ref)` pattern as Android. Accessibility tree with `[ref=N]` markers, tap via Full Keyboard Access + BLE keyboard, screenshots. No Mac, no Xcode required. Cable-free possible (WiFi + Bluetooth) after one-time USB setup.
 
 ## Install
 
@@ -81,13 +81,14 @@ Same screen control, running on the phone itself via wireless debugging. Plus di
 
 See [docs/customer-guide.md](docs/customer-guide.md) for Termux setup and all modules.
 
-## Three modules
+## Four modules
 
 | Module | What it does | Requires |
 |--------|-------------|----------|
 | **Core ADB** | Full screen control from a host machine -- snapshots, tap/type/swipe, screenshots, app lifecycle | `adb` + USB debugging |
 | **Termux ADB** | Same screen control, runs on the phone itself -- no host needed | Termux + wireless debugging |
 | **Termux:API** | Direct device APIs -- SMS, calls, GPS, camera, clipboard, contacts, notifications | Termux + Termux:API app |
+| **iOS** | Same snapshot→tap(ref) as Android. Full Keyboard Access + BLE keyboard. Screenshots. | Bluetooth adapter, Python 3.12, Full Keyboard Access |
 
 ## What it handles automatically
 

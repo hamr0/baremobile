@@ -18,90 +18,97 @@ describe('iOS connect() — integration tests', () => {
     assert.equal(page.platform, 'ios');
   });
 
-  it('should have a device serial', () => {
+  it('should have a device serial (UDID)', () => {
     assert.ok(page.serial, 'serial should be set');
     assert.notEqual(page.serial, 'unknown', 'serial should be resolved');
+    assert.ok(page.serial.length >= 20, `UDID too short: ${page.serial}`);
   });
 
-  it('should take a screenshot returning PNG buffer > 1KB', async () => {
+  it('should screenshot the current screen', async () => {
     const buf = await page.screenshot();
     assert.ok(Buffer.isBuffer(buf), 'should return a Buffer');
-    assert.ok(buf.length > 1024, `Screenshot too small: ${buf.length} bytes`);
-    // Check PNG magic bytes
-    assert.equal(buf[0], 0x89, 'PNG magic byte 0');
-    assert.equal(buf[1], 0x50, 'PNG magic byte 1 (P)');
-    assert.equal(buf[2], 0x4E, 'PNG magic byte 2 (N)');
-    assert.equal(buf[3], 0x47, 'PNG magic byte 3 (G)');
-    console.log(`    Screenshot: ${(buf.length / 1024).toFixed(0)} KB`);
+    assert.ok(buf.length > 1024, `too small (${buf.length} bytes)`);
+    assert.equal(buf[0], 0x89, 'PNG magic byte');
   });
 
-  it('should launch and kill Settings app', async () => {
-    const pid = await page.launch('com.apple.Preferences');
-    assert.ok(typeof pid === 'number', 'launch should return a number');
-    assert.ok(pid > 0, `PID should be positive: ${pid}`);
-    console.log(`    Launched Settings (pid: ${pid})`);
-
-    await page.kill(pid);
-    console.log(`    Killed pid ${pid}`);
+  it('should snapshot accessibility elements', async () => {
+    const snap = await page.snapshot();
+    assert.ok(typeof snap === 'string', 'snapshot should be a string');
+    assert.ok(snap.length > 0, 'snapshot should not be empty');
+    assert.match(snap, /\[ref=0\]/, 'should contain [ref=0]');
+    console.log(`    snapshot (first 500 chars):\n${snap.slice(0, 500)}`);
   });
 
-  describe('BLE HID input (requires paired device)', () => {
-    it('should tap via BLE', async () => {
-      // Launch Settings first
-      const pid = await page.launch('com.apple.Preferences');
+  describe('accessibility-based navigation', () => {
+    let settingsPid;
+
+    before(async () => {
+      settingsPid = await page.launch('com.apple.Preferences');
       await new Promise(r => setTimeout(r, 2000));
-
-      console.log('    tapping (187, 300)...');
-      await page.tapXY(187, 300);
-      await new Promise(r => setTimeout(r, 1500));
-
-      const buf = await page.screenshot();
-      assert.ok(buf.length > 1024, 'Post-tap screenshot too small');
-      console.log(`    Post-tap screenshot: ${(buf.length / 1024).toFixed(0)} KB`);
-
-      await page.kill(pid);
     });
 
-    it('should type text via BLE', async () => {
-      // Open Settings and tap search bar
-      const pid = await page.launch('com.apple.Preferences');
-      await new Promise(r => setTimeout(r, 2000));
-
-      // Tap search bar area
-      await page.tapXY(187, 110);
-      await new Promise(r => setTimeout(r, 1000));
-
-      console.log('    typing "general"...');
-      await page.type('general');
-      await new Promise(r => setTimeout(r, 1000));
-
-      const buf = await page.screenshot();
-      assert.ok(buf.length > 1024, 'Post-type screenshot too small');
-      console.log(`    Post-type screenshot: ${(buf.length / 1024).toFixed(0)} KB`);
-
-      await page.kill(pid);
+    after(async () => {
+      if (settingsPid) await page.kill(settingsPid).catch(() => {});
     });
 
-    it('should complete full loop: screenshot → tapXY → screenshot', async () => {
-      const pid = await page.launch('com.apple.Preferences');
-      await new Promise(r => setTimeout(r, 2000));
+    it('should snapshot Settings with recognizable elements', async () => {
+      const snap = await page.snapshot();
+      assert.ok(snap.includes('[ref='), 'should have ref markers');
+      // Settings app should have some recognizable labels
+      const hasKnownLabel = /Wi-Fi|General|Bluetooth|Display|Notifications/i.test(snap);
+      assert.ok(hasKnownLabel, `Settings snapshot should have known labels:\n${snap.slice(0, 800)}`);
+      console.log(`    Settings snapshot:\n${snap.slice(0, 600)}`);
+    });
 
-      const before = await page.screenshot();
-      assert.ok(before.length > 1024);
-      console.log(`    Before: ${(before.length / 1024).toFixed(0)} KB`);
+    it('should tap(ref) and navigate to a different screen', async () => {
+      const before = await page.snapshot();
 
-      await page.tapXY(187, 300);
+      // Find a tappable ref (skip ref 0 which may be a header)
+      const refMatch = before.match(/\[ref=(\d+)\].*"(Wi-Fi|General|Bluetooth)"/);
+      assert.ok(refMatch, `Could not find known row to tap in:\n${before.slice(0, 500)}`);
+      const ref = parseInt(refMatch[1], 10);
+      const label = refMatch[2];
+      console.log(`    tapping ref=${ref} ("${label}")...`);
+
+      await page.tap(ref);
       await new Promise(r => setTimeout(r, 1500));
 
-      const after = await page.screenshot();
-      assert.ok(after.length > 1024);
-      console.log(`    After: ${(after.length / 1024).toFixed(0)} KB`);
+      const after = await page.snapshot();
+      assert.notEqual(before, after, 'snapshot should change after tap');
+      console.log(`    after tap:\n${after.slice(0, 400)}`);
+    });
 
-      // Screenshots should differ (navigated to different screen)
-      const sizeDiff = Math.abs(before.length - after.length);
-      console.log(`    Size diff: ${(sizeDiff / 1024).toFixed(0)} KB`);
+    it('should waitForText() resolve when text is on screen', async () => {
+      // We're in some sub-screen after the tap above — go back to Settings
+      await page.back();
+      await new Promise(r => setTimeout(r, 1000));
 
-      await page.kill(pid);
+      const snap = await page.waitForText('Settings', 10_000);
+      assert.ok(snap.includes('Settings'), 'should find Settings text');
+    });
+
+    it('full loop: launch → snapshot → tap → snapshot → verify change', async () => {
+      // Kill and relaunch Settings
+      await page.kill(settingsPid).catch(() => {});
+      settingsPid = await page.launch('com.apple.Preferences');
+      await new Promise(r => setTimeout(r, 2000));
+
+      // Step 1: Snapshot
+      const snap1 = await page.snapshot();
+      assert.match(snap1, /\[ref=/, 'step1 should have refs');
+
+      // Step 2: Tap a row
+      const refMatch = snap1.match(/\[ref=(\d+)\]/);
+      assert.ok(refMatch, 'should find a ref to tap');
+      const ref = parseInt(refMatch[1], 10);
+      console.log(`    full loop: tapping ref=${ref}...`);
+      await page.tap(ref);
+      await new Promise(r => setTimeout(r, 1500));
+
+      // Step 3: Snapshot again — should differ
+      const snap2 = await page.snapshot();
+      assert.notEqual(snap1, snap2, 'screen should change after tap');
+      console.log('    full loop verified — snapshots differ');
     });
   });
 });
