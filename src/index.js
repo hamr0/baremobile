@@ -100,6 +100,46 @@ export async function connect(opts = {}) {
       await shell(`am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER ${pkg}`, adbOpts);
     },
 
+    async intent(action, extras = {}) {
+      let cmd = `am start -a ${action}`;
+      for (const [k, v] of Object.entries(extras)) {
+        if (typeof v === 'number') cmd += ` --ei ${k} ${v}`;
+        else if (typeof v === 'boolean') cmd += ` --ez ${k} ${v}`;
+        else cmd += ` --es ${k} '${v}'`;
+      }
+      await shell(cmd, adbOpts);
+    },
+
+    async waitForText(text, timeout = 10_000) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const snap = await page.snapshot();
+        if (snap.includes(text)) return snap;
+        await new Promise(r => setTimeout(r, 500));
+      }
+      throw new Error(`waitForText: "${text}" not found after ${timeout}ms`);
+    },
+
+    async waitForState(ref, state, timeout = 10_000) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const snap = await page.snapshot();
+        const node = _refMap.get(ref);
+        if (node) {
+          const has = state === 'enabled' ? node.enabled
+            : state === 'disabled' ? !node.enabled
+            : state === 'checked' ? node.checked
+            : state === 'unchecked' ? !node.checked
+            : state === 'focused' ? node.focused
+            : state === 'selected' ? node.selected
+            : null;
+          if (has) return snap;
+        }
+        await new Promise(r => setTimeout(r, 500));
+      }
+      throw new Error(`waitForState: ref=${ref} not in state "${state}" after ${timeout}ms`);
+    },
+
     async screenshot() {
       return exec(['exec-out', 'screencap -p'], { serial, timeout: 10_000, encoding: 'buffer' });
     },

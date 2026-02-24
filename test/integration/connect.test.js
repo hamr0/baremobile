@@ -41,6 +41,9 @@ describe('connect', { skip: !hasDevice && 'No ADB device available' }, () => {
     assert.strictEqual(typeof page.back, 'function');
     assert.strictEqual(typeof page.home, 'function');
     assert.strictEqual(typeof page.launch, 'function');
+    assert.strictEqual(typeof page.intent, 'function');
+    assert.strictEqual(typeof page.waitForText, 'function');
+    assert.strictEqual(typeof page.waitForState, 'function');
     assert.strictEqual(typeof page.screenshot, 'function');
     assert.strictEqual(typeof page.close, 'function');
     assert.strictEqual(typeof page.serial, 'string');
@@ -103,6 +106,26 @@ describe('connect', { skip: !hasDevice && 'No ADB device available' }, () => {
     await page.tapGrid('E10');
     await new Promise(r => setTimeout(r, 300));
     assert.ok(true);
+  });
+
+  it('intent() navigates directly to settings subsection', async () => {
+    await page.intent('android.settings.BLUETOOTH_SETTINGS');
+    await new Promise(r => setTimeout(r, 1500));
+    const snap = await page.snapshot();
+    assert.ok(snap.includes('Bluetooth') || snap.includes('Connected devices'),
+      'Should show Bluetooth or Connected devices screen');
+  });
+
+  it('waitForText() resolves when text is present', async () => {
+    const snap = await page.waitForText('Bluetooth', 5000);
+    assert.ok(snap.includes('Bluetooth'));
+  });
+
+  it('waitForText() throws on timeout', async () => {
+    await assert.rejects(
+      () => page.waitForText('XYZNONEXISTENT', 1500),
+      { message: /not found after/ },
+    );
   });
 
   it('home() goes to home screen', async () => {

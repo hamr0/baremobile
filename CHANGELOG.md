@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.3.0
+
+Waiting, intents, platform docs, multis integration path.
+
+### New features
+- `page.waitForText(text, timeout)` — poll snapshot until text appears or timeout
+- `page.waitForState(ref, state, timeout)` — poll for element state (enabled/disabled/checked/unchecked/focused/selected)
+- `page.intent(action, extras?)` — deep navigation via Android intents (`am start -a`), supports string/int/boolean extras
+
+### Docs
+- Blueprint: connectivity modes (USB, WiFi, Tailscale), multis integration path, iOS WDA accessibility chain analysis
+- context.md: waiting patterns, common intents, vision fallback, switch/toggle quirks, transitional states
+
+### Tests
+- 51 tests (39 unit + 12 integration), up from 48
+- New: intent deep navigation, waitForText resolve + timeout
+
 ## 0.2.0
 
 Screenshot-based vision fallback, coordinate tapping, grid system, entity decoding fix.

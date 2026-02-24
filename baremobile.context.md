@@ -49,6 +49,7 @@ Always snapshot after every action. Refs reset per snapshot — never cache them
 ### Navigation
 ```js
 await page.launch('com.android.settings');  // open app by package
+await page.intent('android.settings.BLUETOOTH_SETTINGS');  // deep nav via intent
 await page.back();                          // press back
 await page.home();                          // press home
 await page.press('recent');                 // app switcher
@@ -63,12 +64,21 @@ const png = await page.screenshot();   // PNG buffer
 ### Interaction
 ```js
 await page.tap(ref);                        // tap element
+await page.tapXY(540, 1200);               // tap by pixel coordinates
+await page.tapGrid('C5');                  // tap by grid cell
 await page.type(ref, 'text');               // type into field
 await page.type(ref, 'new', {clear: true}); // clear field first, then type
 await page.press('enter');                  // press key
 await page.scroll(ref, 'down');             // scroll within element
 await page.longPress(ref);                  // long press
 await page.swipe(x1, y1, x2, y2, 300);     // raw swipe
+```
+
+### Waiting
+```js
+const snap = await page.waitForText('Bluetooth', 10000);  // poll until text appears
+const snap = await page.waitForState(3, 'checked', 10000); // poll until state matches
+// States: 'enabled', 'disabled', 'checked', 'unchecked', 'focused', 'selected'
 ```
 
 ### Keys for press()
@@ -106,6 +116,31 @@ await new Promise(r => setTimeout(r, 2000)); // wait for app to load
 const snapshot = await page.snapshot();
 ```
 Common packages: `com.android.settings`, `com.android.chrome`, `com.google.android.apps.messaging`, `com.google.android.dialer`, `com.android.contacts`
+
+### Deep navigation with intents
+```js
+await page.intent('android.settings.BLUETOOTH_SETTINGS');
+await page.intent('android.settings.WIFI_SETTINGS');
+await page.intent('android.settings.DISPLAY_SETTINGS');
+await page.intent('android.settings.SOUND_SETTINGS');
+await page.intent('android.settings.LOCATION_SOURCE_SETTINGS');
+await page.intent('android.settings.AIRPLANE_MODE_SETTINGS');
+await page.intent('android.settings.APPLICATION_SETTINGS');
+// With extras:
+await page.intent('android.intent.action.VIEW', { url: 'https://example.com' });
+```
+Skip multi-step navigation when you know the intent action.
+
+### Vision fallback (when ARIA tree fails)
+```js
+const png = await page.screenshot();    // get visual
+const grid = await page.grid();         // get grid info
+console.log(grid.text);                 // "Screen: 1080×2400, Grid: 10 cols (A-J) × 22 rows..."
+// Send screenshot + grid.text to vision model
+// Model responds: "tap C5"
+await page.tapGrid('C5');               // or page.tapXY(x, y)
+```
+Use when: Flutter apps crash uiautomator, WebView content invisible, snapshot seems wrong.
 
 ### Send a message (multi-step)
 1. `launch('com.google.android.apps.messaging')`
@@ -149,7 +184,11 @@ await page.press('enter');
 
 **WebView content is invisible.** uiautomator can't see inside WebViews. If the snapshot looks empty/shallow in a browser or hybrid app, that's why. Future: CDP bridge.
 
-**HTML entities in text.** XML attributes may contain `&amp;`, `&#128512;`, `&#10;` etc. These are XML-encoded. `&amp;` = `&`, `&#10;` = newline, `&#128512;` = 😀.
+**Switch/toggle may disappear when off.** Android sometimes removes unchecked Switch/Toggle elements from the accessibility tree. On the Bluetooth page, when BT is off the Switch disappears — only `Text "Use Bluetooth"` remains. No switch present = off. Don't look for `Switch [unchecked]`.
+
+**Toggles have transitional states.** After tapping a system toggle (Bluetooth, WiFi), it briefly shows `[disabled]` while the hardware state changes. Use `waitForText()` or `waitForState()` instead of fixed delays to confirm the action completed.
+
+**HTML entities in text.** Decoded at parse time. `&amp;` → `&`, `&lt;` → `<`, etc. Snapshots show clean text.
 
 **Emojis show as entities in contentDesc.** `View [ref=8] (&#128512;)` means the emoji 😀. The agent can read the unicode codepoint or just tap by ref position in the grid.
 
@@ -174,8 +213,8 @@ adb forward tcp:9222 localabstract:chrome_devtools_remote
 ## Error Recovery
 
 If an action doesn't seem to work:
-1. **Snapshot again** — the UI may have changed during the action
-2. **Wait longer** — some transitions take 2-3 seconds
-3. **Screenshot** — visual check if the snapshot seems wrong
+1. **waitForText** — use `waitForText('expected text', 5000)` instead of guessing delays
+2. **Snapshot again** — the UI may have changed during the action
+3. **Screenshot + vision** — `screenshot()` + `grid()` if the ARIA tree looks wrong
 4. **Press back** — if stuck in an unexpected state, back out and retry
 5. **Home + relaunch** — nuclear option to reset to known state

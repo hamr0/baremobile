@@ -362,7 +362,43 @@ Tested end-to-end on API 35 emulator, February 2024:
 4. **Verify** — `adb devices` shows your device as `device` (not `unauthorized`)
 
 WiFi debugging: `adb tcpip 5555` while USB-connected, then `adb connect <device-ip>:5555`.
-Emulators: no setup needed, `adb devices` shows them automatically. (`adb devices` shows it)
+Emulators: no setup needed, `adb devices` shows them automatically.
+
+### Connectivity modes
+
+| Mode | Setup | Use case |
+|------|-------|----------|
+| **USB** | Plug in cable, tap "Allow" | Development, testing |
+| **WiFi (same LAN)** | `adb tcpip 5555` once via USB, then `adb connect <phone-ip>:5555`. Unplug USB. | Home setup — phone and machine on same WiFi |
+| **Remote (Tailscale/WireGuard)** | Install Tailscale on phone + machine. Both join same tailnet. `adb connect <tailscale-ip>:5555` | Phone at home, agent on a server elsewhere. ADB works over the virtual LAN. |
+| **Emulator** | `emulator -avd <name>` or Android Studio. Auto-detected by `adb devices`. | CI, development, no physical device |
+
+**ADB does NOT work over the open internet.** The phone and the machine running baremobile must be on the same network — physical (WiFi/USB) or virtual (Tailscale/WireGuard VPN). Tailscale is free and makes this trivial.
+
+### Integration with multis
+
+The primary integration path is through [multis](https://github.com/hamr0/multis) — a local-first AI agent that lives in your chat apps (Telegram, WhatsApp, Signal, Discord via Beeper bridges).
+
+```
+You (anywhere, any device, any messenger)
+    ↓ message via Telegram/WhatsApp/Signal/Beeper
+multis (running on your machine, has baremobile as a skill)
+    ↓ bare-agent tool call
+baremobile (connects via ADB)
+    ↓ WiFi ADB or Tailscale
+Your Android phone
+```
+
+**How it works:** multis already has a skill system and uses bare-agent for LLM tool calling. baremobile's bareagent adapter (`createMobileTools()`) registers phone control tools with multis. You message multis from any chat: "turn on bluetooth" → multis LLM decides to use baremobile tools → snapshot → tap → tap → tap → replies "Bluetooth is on."
+
+**You never talk to baremobile directly.** You talk to multis through any messenger. multis uses baremobile as one of its skills, alongside shell exec, file read, document search, etc.
+
+**Requirements for this flow:**
+1. Phone: USB debugging enabled
+2. Phone + multis machine: same network (home WiFi or Tailscale)
+3. One-time: `adb tcpip 5555` via USB, then `adb connect <phone-ip>:5555`, unplug
+4. multis running as daemon with baremobile skill configured
+5. You message from anywhere — phone, laptop, another country
 
 ## Comparison with alternatives
 
@@ -381,29 +417,45 @@ Emulators: no setup needed, `adb devices` shows them automatically. (`adb device
 ## Roadmap
 
 ### Phase 1: Core library (DONE)
-Implemented and tested. All modules in `src/`, 36 tests passing.
+6 modules, ~500 lines, 36 tests. connect → snapshot → tap/type/press/swipe/scroll.
 
-### Phase 2: bareagent adapter
+### Phase 1.5: Vision fallback + polish (DONE)
+`tapXY`, `tapGrid`, `buildGrid`, `screenSize`, XML entity decoding. 48 tests.
+
+### Phase 1.6: Waiting + intents (DONE)
+- `waitForText(text, timeout)` — poll snapshot until text appears. 51 tests.
+- `waitForState(ref, state, timeout)` — poll for element state change (enabled/disabled/checked/unchecked/focused/selected)
+- `page.intent(action, extras?)` — deep navigation via Android intents (supports --es, --ei, --ez extras)
+- Documented platform gaps (switch removal, transitional states) in context.md
+- Documented common intents, vision fallback pattern, waiting patterns in context.md
+
+### Phase 2: bareagent adapter (primary integration path)
 `src/bareagent.js` — `createMobileTools(opts)` → `{tools, close}` for [bareagent](https://www.npmjs.com/package/bare-agent) Loop.
+
+This is the primary integration path. multis consumes baremobile through bareagent tools as part of its autonomous agentic flow. User messages multis from any messenger → multis LLM uses baremobile tools → phone responds.
 
 Planned tools:
 | Tool | Description |
 |------|-------------|
 | `snapshot` | Take accessibility snapshot |
 | `tap` | Tap element by ref |
+| `tap_xy` | Tap by pixel coordinates (vision fallback) |
+| `tap_grid` | Tap by grid cell label |
 | `type` | Type text into element |
 | `press` | Press key (back, home, enter, etc.) |
 | `scroll` | Scroll within element |
 | `long_press` | Long press element |
 | `swipe` | Raw swipe gesture |
 | `launch` | Launch app by package name |
+| `intent` | Deep navigation via Android intent |
 | `screenshot` | Take screenshot (base64 PNG) |
 | `back` | Navigate back |
 | `home` | Go to home screen |
+| `wait_for_text` | Poll until text appears on screen |
 
 Action tools auto-return snapshot after 300ms settle (same pattern as barebrowse bareagent adapter). Agent calls one tool, gets updated view back automatically.
 
-### Phase 3: MCP server
+### Phase 3: MCP server (secondary — for Claude Code/Desktop users)
 `mcp-server.js` — JSON-RPC 2.0 over stdio, same as barebrowse. No SDK dependency.
 
 Same tool set as bareagent adapter but following MCP conventions:
@@ -426,6 +478,8 @@ Config for Claude Desktop / Cursor:
   }
 }
 ```
+
+Note: MCP is for developers using Claude Code directly. The primary user-facing path is multis → bareagent → baremobile (Phase 2).
 
 ### Phase 4: CLI session mode
 `cli.js` + `src/daemon.js` + `src/session-client.js` — same architecture as barebrowse CLI.
@@ -465,7 +519,6 @@ Discovery: scan `/proc/*/cmdline` or `cat /proc/net/unix` for `webview_devtools_
 - `clipboard(text)` — set clipboard content via `am broadcast`
 - `notification()` — expand notification shade, snapshot, interact
 - `rotate(orientation)` — set screen orientation
-- `waitForText(text, timeout)` — poll snapshot until text appears
 - `install(apkPath)` — install APK via `adb install`
 - `uninstall(pkg)` — uninstall app
 
@@ -493,9 +546,11 @@ Discovery: scan `/proc/*/cmdline` or `cat /proc/net/unix` for `webview_devtools_
 
 ## Future Features Needed
 
-### Bugs / Quick Wins
+### Done (shipped in 0.2.0)
 
-**HTML entity decoding in snapshots** — uiautomator dump XML contains `&amp;`, `&lt;`, etc. The parser doesn't decode these, so snapshots show `Network &amp; internet` instead of `Network & internet`. An agent searching for `"Network & internet"` by text match will fail. Fix in `xml.js` parseXml.
+- ~~HTML entity decoding~~ — `&amp;` → `&` in xml.js, all 5 XML entities
+- ~~Screenshot vision fallback~~ — `tapXY(x, y)`, `tapGrid(cell)`, `buildGrid()`, `page.grid()` shipped
+- ~~Coordinate tapping~~ — `page.tapXY()` for vision model use
 
 ### Core Improvements
 
@@ -505,46 +560,69 @@ Discovery: scan `/proc/*/cmdline` or `cat /proc/net/unix` for `webview_devtools_
 
 **Intent-based deep navigation** — `page.launch(pkg)` only opens the main activity. Android supports intent shortcuts like `am start -a android.settings.BLUETOOTH_SETTINGS` to jump directly into subsections. Add `page.intent(action, extras?)` or document common intent patterns in context.md so agents don't need 4 navigation steps to reach Bluetooth settings.
 
-**Screenshot as agent fallback** — When an agent fails to accomplish a task twice via ARIA tree (e.g. element not in tree, WebView, Flutter), automatically offer a screenshot with numbered grid overlay so the agent can tap by grid coordinate. Flow: `snapshot()` fails or action doesn't produce expected result → `screenshot({grid: true})` → agent sees the screen visually → `tapXY(x, y)` by grid reference → `screenshot()` to verify. This bridges gaps where the accessibility tree is incomplete or missing.
-
 ### Platform Gaps to Document
 
 **Switch removal when unchecked** — Android sometimes removes unchecked Switch/Toggle elements from the accessibility tree entirely rather than showing `Switch [unchecked]`. Observed on Bluetooth settings page: when BT is off, the Switch element disappears and only `Text "Use Bluetooth"` remains. Agents need to know: "no switch present = off" rather than looking for `[unchecked]`. Add to context.md and agent integration guide.
 
 **Transitional disabled states** — System settings toggles go through a `[disabled]` state during async operations (observed: Bluetooth enabling). Agents should snapshot again after 1-2s when they see `[disabled]` on a toggle they just tapped. Document this pattern.
 
-### Screenshot as agent fallback (Android only)
-
-When ARIA tree fails (Flutter crash, empty WebView, obfuscated custom views), fall back to vision:
-
-1. `screenshot({grid: true})` — overlay numbered grid on screenshot
-2. Send to vision model — "What do you see? Which grid cell should I tap?"
-3. `tapXY(gridCellCenter)` → `screenshot()` → verify
-
-Trade-offs vs ARIA: slower (vision API per action), higher token cost (image vs ~200 text tokens), less precise (grid cell vs exact bounds), no semantic state. But covers the 5% of cases where uiautomator fails.
-
 ### Why not iPhone
 
-Investigated and decided against iOS support. The platform doesn't allow it without unreasonable friction:
+Investigated and decided against iOS support. The platform doesn't allow it without unreasonable friction.
 
-**Android setup:** Enable USB debugging (one toggle). Done. Zero-install, zero-dep. Everything baremobile needs (`uiautomator dump`, `adb shell input`, `screencap`) is built into every Android device.
+#### How iOS accessibility actually works
 
-**iOS setup for equivalent functionality:**
+iOS has a rich accessibility tree — same one VoiceOver uses. The technical chain:
+
+```
+iOS App → Apple Accessibility Framework → XCUITest (XCUIElementAttributes) → WebDriverAgent → HTTP API
+```
+
+1. **Apple Accessibility Framework** — built into iOS. Every app exposes element types, labels, values, traits, frames. The tree is there and it's good.
+2. **XCUITest** — Apple's official UI testing framework. Reads the accessibility tree through public APIs (`XCUIElementAttributes` protocol). Not private APIs, fully sanctioned.
+3. **WebDriverAgent (WDA)** — a server app (originally Facebook, now Appium-maintained) that wraps XCUITest in an HTTP/WebDriver API on port 8100. Send HTTP requests → WDA calls XCUITest → reads accessibility tree → returns JSON.
+4. **Everyone else** — Appium, CogniSim, DroidRun (when they ship) — are just HTTP clients talking to WDA. CogniSim converts the tree to HTML + numbered overlays. Same data, different presentation.
+
+**The tree is equivalent to Android's uiautomator dump.** Element types, labels, values, enabled/disabled/selected states, frames/bounds. Max nesting depth: 62 levels (XCTest hard limit, default 50).
+
+#### The problem isn't the tree — it's getting WDA onto the device
+
+**Android setup:** Enable USB debugging (one toggle). Done. `adb` talks to built-in services. Zero install on device.
+
+**iOS setup to access that same accessibility tree:**
 1. Own a Mac (required — Xcode is macOS-only)
 2. Install Xcode (~25GB download)
 3. Create Apple Developer account
-4. Build and sideload WebDriverAgent (WDA) onto iPhone via Xcode
+4. Build and sideload WebDriverAgent onto iPhone via Xcode
 5. On iPhone: Settings → General → Device Management → Trust the certificate
-6. **Free tier: re-sign WDA every 7 days** (certificate expires). Paid developer account ($99/year) for 1-year signing.
+6. **Free tier: re-sign WDA every 7 days** (certificate expires). Paid: $99/year for 1-year signing.
 7. WDA must be running on the iPhone for any automation to work
 
-**What WDA gives you once installed:** HTTP API on the device for screenshots, tap/swipe/type, and an accessibility tree (XCUITest elements). Basically what Android gives you for free out of the box.
+Alternative sideload tools (skip Xcode GUI): `pymobiledevice3`, `ios-deploy`, `go-ios`, `tidevice`, `ios-app-signer`. All still need Mac + developer certificate.
 
-**Remote iOS is worse:** `idevicescreenshot` (libimobiledevice) works over USB only. Remote requires either WDA over network (still needs sideload), a cloud device farm (BrowserStack, Corellium — expensive), or `pymobiledevice3` network pairing (iOS 17+, flaky).
+#### What the competition actually does
 
-**Bottom line:** Android is open by design — USB debugging exposes everything an agent needs. Apple locks it down by design — every automation path requires Mac + Xcode + sideload + certificate management. This isn't a technical problem we can solve. It's a platform policy. We'd be building a wrapper around WDA's friction, not eliminating it. Not worth it.
+- **Appium XCUITest driver** — wraps WDA, adds convenience. Same Mac + Xcode + sideload requirement.
+- **CogniSim** — says "iOS Support: Coming soon!" — not shipped. Will use Appium/WDA when they do.
+- **DroidRun** — says "iOS: experimental, full support on roadmap" — not shipped. Same WDA path.
+- **Cloud farms** (BrowserStack, Sauce Labs, Corellium) — hide the WDA setup by running it for you. Expensive.
 
-If Apple ever opens up accessibility APIs or ADB-equivalent tooling, revisit. Until then, Android only.
+Nobody has solved the WDA friction. They either haven't shipped iOS, or they require Mac + Xcode.
+
+#### Remote iOS is worse
+
+- `idevicescreenshot` (libimobiledevice) — USB only
+- WDA over network — still needs sideload first
+- `pymobiledevice3` network pairing — iOS 17+, flaky
+- Cloud device farms — expensive, vendor lock-in
+
+#### Decision
+
+Android is open by design — USB debugging exposes everything an agent needs. Apple gates the equivalent behind Mac + Xcode + sideload + certificate management. The accessibility tree is there and it's good — Apple just won't let you read it without jumping through hoops.
+
+This isn't a technical problem we can solve. It's a platform policy. We'd be building a wrapper around WDA's friction, not eliminating it. Not worth it.
+
+If Apple ever exposes accessibility APIs via USB (like Android's `adb` + `uiautomator`), revisit immediately. Until then, Android only.
 
 ## References
 
