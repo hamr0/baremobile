@@ -58,21 +58,9 @@ claude mcp add baremobile -- npx baremobile mcp
 
 ### 2. Library -- for agentic automation
 
-```js
-import { connect } from 'baremobile';
+Import baremobile in your agent code. Connect to a device, take snapshots, tap/type/swipe by ref. Works with any LLM orchestration library. Ships with a ready-made adapter for [bareagent](https://www.npmjs.com/package/bare-agent).
 
-const page = await connect();          // auto-detect device
-console.log(await page.snapshot());    // pruned YAML with refs
-
-await page.tap(5);                     // tap element by ref
-await page.type(3, 'hello world');     // type into input
-await page.press('back');              // navigate back
-await page.launch('com.android.settings');
-
-page.close();
-```
-
-For the full API, wiring patterns, and integration guide, see **[baremobile.context.md](baremobile.context.md)**.
+For code examples, API reference, and wiring instructions, see **[baremobile.context.md](baremobile.context.md)** -- the full integration guide.
 
 ### 3. On-device via Termux -- no host machine needed
 
@@ -129,30 +117,28 @@ Everything the agent can do through baremobile:
 | **Wait** | Poll for text or element state (checked, enabled, focused...) |
 | **Grid tap** | Vision fallback: tap by grid cell when accessibility tree fails |
 
+## Quick setup
+
+1. `npm install baremobile`
+2. Enable Developer Options -- Settings > About phone > tap "Build number" 7 times
+3. Enable USB debugging -- Settings > Developer options > toggle on
+4. Connect device via USB, tap "Allow" on the prompt
+5. Verify -- `adb devices` should show your device
+6. Pick your interface: MCP server, library import, or Termux on-device
+
+For WiFi: `adb tcpip 5555` then `adb connect <device-ip>:5555`. For emulators: no setup needed.
+
+Requires Node.js >= 22 and `adb` in PATH ([Android SDK platform-tools](https://developer.android.com/tools/releases/platform-tools)).
+
 ## Tested against
 
 Settings, Messages, Chrome, Gmail, Files, Camera, Calculator, Contacts, Play Store, YouTube -- on physical devices and emulators across API 33-35.
 
 ## Context file
 
-**[baremobile.context.md](baremobile.context.md)** is the full integration guide. Feed it to an AI assistant or read it yourself -- complete API, snapshot format, interaction patterns, Termux setup, vision fallback, and gotchas.
+**[baremobile.context.md](baremobile.context.md)** is the full integration guide. Feed it to an AI assistant or read it yourself -- complete API, snapshot format, interaction patterns, Termux setup, vision fallback, and gotchas. Everything you need to wire baremobile into a project.
 
 For detailed setup and usage of each module, see **[docs/customer-guide.md](docs/customer-guide.md)**.
-
-## Device setup
-
-1. **Enable Developer Options** -- Settings > About phone > tap "Build number" 7 times
-2. **Enable USB debugging** -- Settings > Developer options > toggle on
-3. **Connect** -- plug in USB, tap "Allow" on the prompt
-4. **Verify** -- `adb devices` should show your device
-
-For WiFi: `adb tcpip 5555` then `adb connect <device-ip>:5555`. For emulators: no setup needed.
-
-## Requirements
-
-- Node.js >= 22
-- `adb` in PATH ([Android SDK platform-tools](https://developer.android.com/tools/releases/platform-tools))
-- Android device or emulator with USB debugging enabled
 
 ## The bare ecosystem
 
