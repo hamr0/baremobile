@@ -1,5 +1,14 @@
 # Implementation Log
 
+## 2025-02-24 — MCP end-to-end validation + ref coercion fix
+
+- Tested all 10 MCP tools on real emulator (emulator-5554, API 35)
+- Full workflow: launch → snapshot → tap → type → back → screenshot — all verified
+- Drove Messages app end-to-end: compose → type number → type message → send
+- Found bug: `resolveRef()` in `interact.js` used `refMap.get(ref)` but MCP passes refs as strings, refMap keys are integers. `Map.get("7") !== Map.get(7)`.
+- Fix: coerce `typeof ref === 'string' ? Number(ref) : ref` in `resolveRef()`
+- Commit: d4a8bd2
+
 ## 2025-02-24 — MCP server (Phase 3)
 
 - Built `mcp-server.js` — raw JSON-RPC 2.0 over stdio, 10 tools, ~200 lines

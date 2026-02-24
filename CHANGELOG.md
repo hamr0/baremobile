@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.5.1
+
+### Bug fixes
+- `interact.js`: fixed ref type coercion in `resolveRef()` — MCP passes refs as strings but refMap keys are integers. Added `Number()` coercion.
+
+### Validation
+- Tested all 10 MCP tools end-to-end on real emulator (API 35)
+- Full workflow verified: launch Settings, tap, type search, scroll, back, screenshot
+- Drove Messages app: compose → type number → type message → send
+
 ## 0.5.0
 
 MCP server — 10 screen-control tools over JSON-RPC 2.0 stdio.
