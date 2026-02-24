@@ -4,7 +4,9 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 
 const exec = promisify(execFile);
-const PYTHON = 'python3.12';
+// BLE HID uses system Python (3.14) — dbus-python/PyGObject are system packages.
+// pymobiledevice3 uses python3.12 separately (3.14 has build failures).
+const PYTHON = 'python3';
 const POC_SCRIPT = new URL('./ble-hid-poc.py', import.meta.url).pathname;
 
 /**

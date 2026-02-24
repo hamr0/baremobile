@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.12
+#!/usr/bin/env python3
 """
 BLE HID POC — Keyboard + Mouse via BlueZ D-Bus GATT server.
 
@@ -6,22 +6,25 @@ Presents Linux as a BLE HID keyboard/mouse to iOS.
 iPhone pairs via Settings > Bluetooth > "baremobile".
 
 Usage:
-    sudo python3.12 test/ios/ble-hid-poc.py                  # start GATT server + advertise
-    sudo python3.12 test/ios/ble-hid-poc.py send_key a        # send single key
-    sudo python3.12 test/ios/ble-hid-poc.py send_string hello  # send string
-    sudo python3.12 test/ios/ble-hid-poc.py click              # mouse click at cursor
-    sudo python3.12 test/ios/ble-hid-poc.py move 100 200       # move mouse dx dy
+    sudo python3 test/ios/ble-hid-poc.py
+    # Then type commands at the > prompt:
+    #   send_string hello
+    #   send_key a
+    #   click
+    #   move 100 200
+    #   quit
 
 Requires:
-    - BlueZ 5.56+ with input plugin disabled
+    - BlueZ 5.56+ with input plugin disabled in /etc/bluetooth/main.conf
     - python3-dbus, python3-gobject (Fedora) or dbus-python, PyGObject (pip)
     - Bluetooth adapter supporting peripheral role
 
-Based on HeadHodge HOGP keyboard gist.
+Based on HeadHodge Bluez-HID-over-Gatt-Keyboard-Peripheral.
 """
 
 import sys
 import dbus
+import dbus.exceptions
 import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
@@ -36,15 +39,11 @@ GATT_CHRC_IFACE = 'org.bluez.GattCharacteristic1'
 GATT_DESC_IFACE = 'org.bluez.GattDescriptor1'
 LE_ADVERTISEMENT_IFACE = 'org.bluez.LEAdvertisement1'
 
-# HID Report Map: combined keyboard + mouse
-# Keyboard: 8 bytes (modifier, reserved, 6 keys)
-# Mouse: 4 bytes (buttons, X, Y, wheel)
+# HID Report Map: keyboard only (no Report ID — single report, simplest case)
 REPORT_MAP = bytes([
-    # Keyboard (Report ID 1)
     0x05, 0x01,        # Usage Page (Generic Desktop)
     0x09, 0x06,        # Usage (Keyboard)
     0xA1, 0x01,        # Collection (Application)
-    0x85, 0x01,        #   Report ID (1)
     0x05, 0x07,        #   Usage Page (Key Codes)
     0x19, 0xE0,        #   Usage Minimum (224) - Left Control
     0x29, 0xE7,        #   Usage Maximum (231) - Right GUI
@@ -64,48 +63,28 @@ REPORT_MAP = bytes([
     0x19, 0x00,        #   Usage Minimum (0)
     0x29, 0x65,        #   Usage Maximum (101)
     0x81, 0x00,        #   Input (Data, Array) - Key array (6 keys)
-    0xC0,              # End Collection
-
-    # Mouse (Report ID 2)
-    0x05, 0x01,        # Usage Page (Generic Desktop)
-    0x09, 0x02,        # Usage (Mouse)
-    0xA1, 0x01,        # Collection (Application)
-    0x85, 0x02,        #   Report ID (2)
-    0x09, 0x01,        #   Usage (Pointer)
-    0xA1, 0x00,        #   Collection (Physical)
-    0x05, 0x09,        #     Usage Page (Buttons)
-    0x19, 0x01,        #     Usage Minimum (1)
-    0x29, 0x03,        #     Usage Maximum (3)
-    0x15, 0x00,        #     Logical Minimum (0)
-    0x25, 0x01,        #     Logical Maximum (1)
-    0x95, 0x03,        #     Report Count (3)
-    0x75, 0x01,        #     Report Size (1)
-    0x81, 0x02,        #     Input (Data, Variable, Absolute) - 3 buttons
-    0x95, 0x01,        #     Report Count (1)
-    0x75, 0x05,        #     Report Size (5)
-    0x81, 0x01,        #     Input (Constant) - Padding
-    0x05, 0x01,        #     Usage Page (Generic Desktop)
-    0x09, 0x30,        #     Usage (X)
-    0x09, 0x31,        #     Usage (Y)
-    0x09, 0x38,        #     Usage (Wheel)
-    0x15, 0x81,        #     Logical Minimum (-127)
-    0x25, 0x7F,        #     Logical Maximum (127)
-    0x75, 0x08,        #     Report Size (8)
-    0x95, 0x03,        #     Report Count (3)
-    0x81, 0x06,        #     Input (Data, Variable, Relative)
-    0xC0,              #   End Collection (Physical)
+    # LED Output Report (iOS expects this for keyboards)
+    0x05, 0x08,        #   Usage Page (LEDs)
+    0x19, 0x01,        #   Usage Minimum (1) - Num Lock
+    0x29, 0x05,        #   Usage Maximum (5) - Kana
+    0x95, 0x05,        #   Report Count (5)
+    0x75, 0x01,        #   Report Size (1)
+    0x91, 0x02,        #   Output (Data, Variable, Absolute) - LED bits
+    0x95, 0x01,        #   Report Count (1)
+    0x75, 0x03,        #   Report Size (3)
+    0x91, 0x01,        #   Output (Constant) - Padding
     0xC0,              # End Collection
 ])
 
-# USB HID keycode lookup (lowercase ASCII → HID keycode)
+# USB HID keycode lookup
 CHAR_TO_KEYCODE = {}
 for i, c in enumerate('abcdefghijklmnopqrstuvwxyz'):
-    CHAR_TO_KEYCODE[c] = (0, 0x04 + i)  # (modifier, keycode)
+    CHAR_TO_KEYCODE[c] = (0, 0x04 + i)
 for i, c in enumerate('1234567890'):
     CHAR_TO_KEYCODE[c] = (0, 0x1E + i)
-CHAR_TO_KEYCODE[' '] = (0, 0x2C)   # space
-CHAR_TO_KEYCODE['\n'] = (0, 0x28)  # enter
-CHAR_TO_KEYCODE['\t'] = (0, 0x2B)  # tab
+CHAR_TO_KEYCODE[' '] = (0, 0x2C)
+CHAR_TO_KEYCODE['\n'] = (0, 0x28)
+CHAR_TO_KEYCODE['\t'] = (0, 0x2B)
 CHAR_TO_KEYCODE['-'] = (0, 0x2D)
 CHAR_TO_KEYCODE['='] = (0, 0x2E)
 CHAR_TO_KEYCODE['['] = (0, 0x2F)
@@ -118,7 +97,6 @@ CHAR_TO_KEYCODE[','] = (0, 0x36)
 CHAR_TO_KEYCODE['.'] = (0, 0x37)
 CHAR_TO_KEYCODE['/'] = (0, 0x38)
 
-# Shifted characters
 SHIFT_CHARS = {
     'A': 'a', 'B': 'b', 'C': 'c', 'D': 'd', 'E': 'e', 'F': 'f', 'G': 'g',
     'H': 'h', 'I': 'i', 'J': 'j', 'K': 'k', 'L': 'l', 'M': 'm', 'N': 'n',
@@ -130,17 +108,18 @@ SHIFT_CHARS = {
     ':': ';', '"': "'", '~': '`', '<': ',', '>': '.', '?': '/',
 }
 
-# --- D-Bus helper base classes ---
+# --- D-Bus base classes (matches BlueZ example-gatt-server pattern) ---
 
 class Application(dbus.service.Object):
-    """GATT Application — container for services."""
-
     PATH = '/org/bluez/baremobile'
 
     def __init__(self, bus):
         self.path = self.PATH
         self.services = []
         dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
 
     def add_service(self, service):
         self.services.append(service)
@@ -150,29 +129,23 @@ class Application(dbus.service.Object):
         response = {}
         for service in self.services:
             response[service.get_path()] = service.get_properties()
-            for chrc in service.characteristics:
+            for chrc in service.get_characteristics():
                 response[chrc.get_path()] = chrc.get_properties()
-                for desc in chrc.descriptors:
+                for desc in chrc.get_descriptors():
                     response[desc.get_path()] = desc.get_properties()
         return response
 
 
 class Service(dbus.service.Object):
-    """GATT Service base."""
+    PATH_BASE = '/org/bluez/baremobile/service'
 
-    def __init__(self, bus, index, uuid, primary=True):
-        self.path = f'{Application.PATH}/service{index}'
+    def __init__(self, bus, index, uuid, primary):
+        self.path = self.PATH_BASE + str(index)
         self.bus = bus
         self.uuid = uuid
         self.primary = primary
         self.characteristics = []
         dbus.service.Object.__init__(self, bus, self.path)
-
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
-    def add_characteristic(self, chrc):
-        self.characteristics.append(chrc)
 
     def get_properties(self):
         return {
@@ -180,31 +153,53 @@ class Service(dbus.service.Object):
                 'UUID': self.uuid,
                 'Primary': self.primary,
                 'Characteristics': dbus.Array(
-                    [c.get_path() for c in self.characteristics],
-                    signature='o'
-                ),
+                    self.get_characteristic_paths(), signature='o'),
             }
         }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
+
+    def add_characteristic(self, chrc):
+        self.characteristics.append(chrc)
+
+    def get_characteristics(self):
+        return self.characteristics
+
+    def get_characteristic_paths(self):
+        return [c.get_path() for c in self.characteristics]
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
     def GetAll(self, interface):
         if interface != GATT_SERVICE_IFACE:
-            raise dbus.exceptions.DBusException('org.freedesktop.DBus.Error.InvalidArgs')
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                f'No such interface: {interface}')
         return self.get_properties()[GATT_SERVICE_IFACE]
 
 
 class Characteristic(dbus.service.Object):
-    """GATT Characteristic base."""
 
     def __init__(self, bus, index, uuid, flags, service):
-        self.path = f'{service.path}/char{index}'
+        self.path = service.path + '/char' + str(index)
         self.bus = bus
         self.uuid = uuid
-        self.flags = flags
         self.service = service
+        self.flags = flags
         self.descriptors = []
         self.value = []
         dbus.service.Object.__init__(self, bus, self.path)
+
+    def get_properties(self):
+        return {
+            GATT_CHRC_IFACE: {
+                'Service': self.service.get_path(),
+                'UUID': self.uuid,
+                'Flags': dbus.Array(self.flags, signature='s'),
+                'Descriptors': dbus.Array(
+                    self.get_descriptor_paths(), signature='o'),
+            }
+        }
 
     def get_path(self):
         return dbus.ObjectPath(self.path)
@@ -212,31 +207,28 @@ class Characteristic(dbus.service.Object):
     def add_descriptor(self, desc):
         self.descriptors.append(desc)
 
-    def get_properties(self):
-        return {
-            GATT_CHRC_IFACE: {
-                'Service': self.service.get_path(),
-                'UUID': self.uuid,
-                'Flags': self.flags,
-                'Descriptors': dbus.Array(
-                    [d.get_path() for d in self.descriptors],
-                    signature='o'
-                ),
-            }
-        }
+    def get_descriptors(self):
+        return self.descriptors
+
+    def get_descriptor_paths(self):
+        return [d.get_path() for d in self.descriptors]
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
     def GetAll(self, interface):
         if interface != GATT_CHRC_IFACE:
-            raise dbus.exceptions.DBusException('org.freedesktop.DBus.Error.InvalidArgs')
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                f'No such interface: {interface}')
         return self.get_properties()[GATT_CHRC_IFACE]
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
+        print(f'  [ReadValue] {self.uuid} -> {list(self.value)}')
         return self.value
 
     @dbus.service.method(GATT_CHRC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
+        print(f'  [WriteValue] {self.uuid} <- {list(value)}')
         self.value = value
 
     @dbus.service.method(GATT_CHRC_IFACE)
@@ -253,10 +245,9 @@ class Characteristic(dbus.service.Object):
 
 
 class Descriptor(dbus.service.Object):
-    """GATT Descriptor base."""
 
     def __init__(self, bus, index, uuid, flags, chrc):
-        self.path = f'{chrc.path}/desc{index}'
+        self.path = chrc.path + '/desc' + str(index)
         self.bus = bus
         self.uuid = uuid
         self.flags = flags
@@ -264,132 +255,140 @@ class Descriptor(dbus.service.Object):
         self.value = []
         dbus.service.Object.__init__(self, bus, self.path)
 
-    def get_path(self):
-        return dbus.ObjectPath(self.path)
-
     def get_properties(self):
         return {
             GATT_DESC_IFACE: {
                 'Characteristic': self.chrc.get_path(),
                 'UUID': self.uuid,
-                'Flags': self.flags,
+                'Flags': dbus.Array(self.flags, signature='s'),
             }
         }
+
+    def get_path(self):
+        return dbus.ObjectPath(self.path)
 
     @dbus.service.method(DBUS_PROP_IFACE, in_signature='s', out_signature='a{sv}')
     def GetAll(self, interface):
         if interface != GATT_DESC_IFACE:
-            raise dbus.exceptions.DBusException('org.freedesktop.DBus.Error.InvalidArgs')
+            raise dbus.exceptions.DBusException(
+                'org.freedesktop.DBus.Error.InvalidArgs',
+                f'No such interface: {interface}')
         return self.get_properties()[GATT_DESC_IFACE]
 
     @dbus.service.method(GATT_DESC_IFACE, in_signature='a{sv}', out_signature='ay')
     def ReadValue(self, options):
+        print(f'  [Desc ReadValue] {self.uuid} -> {list(self.value)}')
         return self.value
 
     @dbus.service.method(GATT_DESC_IFACE, in_signature='aya{sv}')
     def WriteValue(self, value, options):
+        print(f'  [Desc WriteValue] {self.uuid} <- {list(value)}')
         self.value = value
 
 
-# --- HID Service implementation ---
+# --- HID Service ---
 
 class HIDService(Service):
-    """HID Service (0x1812) — keyboard + mouse."""
-
     UUID = '00001812-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index):
-        super().__init__(bus, index, self.UUID, True)
-        # Protocol Mode (0x2A4E) — Report Protocol
-        self.protocol_mode = ProtocolModeChrc(bus, 0, self)
-        self.add_characteristic(self.protocol_mode)
-        # HID Information (0x2A4A)
-        self.hid_info = HIDInfoChrc(bus, 1, self)
-        self.add_characteristic(self.hid_info)
-        # Report Map (0x2A4B)
-        self.report_map = ReportMapChrc(bus, 2, self)
-        self.add_characteristic(self.report_map)
-        # HID Control Point (0x2A4C)
-        self.control_point = HIDControlPointChrc(bus, 3, self)
-        self.add_characteristic(self.control_point)
-        # Keyboard Report (0x2A4D, Report ID 1)
-        self.kb_report = ReportChrc(bus, 4, self, report_id=1)
+        Service.__init__(self, bus, index, self.UUID, True)
+        self.add_characteristic(ProtocolModeChrc(bus, 0, self))
+        self.add_characteristic(HIDInfoChrc(bus, 1, self))
+        self.add_characteristic(ControlPointChrc(bus, 2, self))
+        self.add_characteristic(ReportMapChrc(bus, 3, self))
+        # Single keyboard report — no Report ID needed
+        self.kb_report = ReportChrc(bus, 4, self, report_id=0)
         self.add_characteristic(self.kb_report)
-        # Mouse Report (0x2A4D, Report ID 2)
-        self.mouse_report = ReportChrc(bus, 5, self, report_id=2)
-        self.add_characteristic(self.mouse_report)
+        # Output report for LED indicators (Caps Lock etc. — iOS writes to this)
+        self.led_report = OutputReportChrc(bus, 5, self)
+        self.add_characteristic(self.led_report)
 
 
 class ProtocolModeChrc(Characteristic):
     UUID = '00002a4e-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, service):
-        super().__init__(bus, index, self.UUID,
-                         ['read', 'write-without-response'], service)
-        self.value = dbus.Array([dbus.Byte(0x01)], signature='y')  # Report Protocol
+        Characteristic.__init__(self, bus, index, self.UUID,
+                                ['read', 'write-without-response'], service)
+        self.value = dbus.Array([dbus.Byte(0x01)], signature='y')
 
 
 class HIDInfoChrc(Characteristic):
     UUID = '00002a4a-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, service):
-        super().__init__(bus, index, self.UUID, ['read'], service)
+        Characteristic.__init__(self, bus, index, self.UUID, ['read'], service)
         # bcdHID=1.11, bCountryCode=0, Flags=0x02 (normally connectable)
         self.value = dbus.Array([dbus.Byte(0x11), dbus.Byte(0x01),
                                  dbus.Byte(0x00), dbus.Byte(0x02)], signature='y')
+
+
+class ControlPointChrc(Characteristic):
+    UUID = '00002a4c-0000-1000-8000-00805f9b34fb'
+
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, self.UUID,
+                                ['write-without-response'], service)
 
 
 class ReportMapChrc(Characteristic):
     UUID = '00002a4b-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, service):
-        super().__init__(bus, index, self.UUID, ['read'], service)
+        Characteristic.__init__(self, bus, index, self.UUID, ['secure-read'], service)
         self.value = dbus.Array([dbus.Byte(b) for b in REPORT_MAP], signature='y')
 
 
-class HIDControlPointChrc(Characteristic):
-    UUID = '00002a4c-0000-1000-8000-00805f9b34fb'
-
-    def __init__(self, bus, index, service):
-        super().__init__(bus, index, self.UUID, ['write-without-response'], service)
-
-
 class ReportReferenceDesc(Descriptor):
-    """Report Reference Descriptor (0x2908)."""
     UUID = '00002908-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, chrc, report_id, report_type=1):
-        super().__init__(bus, index, self.UUID, ['read'], chrc)
-        # report_type: 1=Input, 2=Output, 3=Feature
+        Descriptor.__init__(self, bus, index, self.UUID, ['secure-read'], chrc)
         self.value = dbus.Array([dbus.Byte(report_id), dbus.Byte(report_type)],
                                 signature='y')
 
 
 class ReportChrc(Characteristic):
-    """HID Report characteristic (0x2A4D) with Report Reference descriptor."""
     UUID = '00002a4d-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, service, report_id):
-        super().__init__(bus, index, self.UUID,
-                         ['read', 'notify', 'write'], service)
+        # secure-read triggers bonding — iOS requires this for HID reports
+        Characteristic.__init__(self, bus, index, self.UUID,
+                                ['secure-read', 'notify'], service)
         self.report_id = report_id
         self.notifying = False
-        ref_desc = ReportReferenceDesc(bus, 0, self, report_id)
-        self.add_descriptor(ref_desc)
-        if report_id == 1:
-            self.value = dbus.Array([dbus.Byte(0)] * 8, signature='y')  # keyboard: 8 bytes
-        else:
-            self.value = dbus.Array([dbus.Byte(0)] * 4, signature='y')  # mouse: 4 bytes
+        # Report Reference descriptor: report_id=0 means no Report ID in data
+        self.add_descriptor(ReportReferenceDesc(bus, 0, self, report_id, report_type=1))
+        self.value = dbus.Array([dbus.Byte(0)] * 8, signature='y')
 
     def StartNotify(self):
         self.notifying = True
+        print(f'  Input Report: notifications ON')
 
     def StopNotify(self):
         self.notifying = False
+        print(f'  Input Report: notifications OFF')
 
     def send_report(self, data):
         self.value = dbus.Array([dbus.Byte(b) for b in data], signature='y')
+        print(f'  [KB] notify: {[hex(b) for b in data]}  notifying={self.notifying}')
         self.PropertiesChanged(GATT_CHRC_IFACE, {'Value': self.value}, [])
+
+
+class OutputReportChrc(Characteristic):
+    """Output Report for LED indicators — iOS writes Caps Lock etc. here."""
+    UUID = '00002a4d-0000-1000-8000-00805f9b34fb'
+
+    def __init__(self, bus, index, service):
+        Characteristic.__init__(self, bus, index, self.UUID,
+                                ['secure-read', 'write', 'write-without-response'], service)
+        self.add_descriptor(ReportReferenceDesc(bus, 0, self, 0, report_type=2))  # type=2 = Output
+        self.value = dbus.Array([dbus.Byte(0)], signature='y')
+
+    def WriteValue(self, value, options):
+        self.value = value
+        print(f'  [LED] write: {[hex(int(b)) for b in value]}')
 
 
 # --- Device Information Service ---
@@ -398,7 +397,7 @@ class DeviceInfoService(Service):
     UUID = '0000180a-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index):
-        super().__init__(bus, index, self.UUID, True)
+        Service.__init__(self, bus, index, self.UUID, True)
         self.add_characteristic(ManufacturerChrc(bus, 0, self))
         self.add_characteristic(PnPIDChrc(bus, 1, self))
 
@@ -407,7 +406,7 @@ class ManufacturerChrc(Characteristic):
     UUID = '00002a29-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, service):
-        super().__init__(bus, index, self.UUID, ['read'], service)
+        Characteristic.__init__(self, bus, index, self.UUID, ['read'], service)
         self.value = dbus.Array([dbus.Byte(c) for c in b'baremobile'], signature='y')
 
 
@@ -415,9 +414,7 @@ class PnPIDChrc(Characteristic):
     UUID = '00002a50-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, service):
-        super().__init__(bus, index, self.UUID, ['read'], service)
-        # Vendor ID Source=0x02 (USB), Vendor ID=0x05AC (Apple-compatible),
-        # Product ID=0x0001, Version=0x0001
+        Characteristic.__init__(self, bus, index, self.UUID, ['read'], service)
         self.value = dbus.Array([dbus.Byte(b) for b in
                                  bytes([0x02, 0xAC, 0x05, 0x01, 0x00, 0x01, 0x00])],
                                 signature='y')
@@ -429,7 +426,7 @@ class BatteryService(Service):
     UUID = '0000180f-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index):
-        super().__init__(bus, index, self.UUID, True)
+        Service.__init__(self, bus, index, self.UUID, True)
         self.add_characteristic(BatteryLevelChrc(bus, 0, self))
 
 
@@ -437,8 +434,8 @@ class BatteryLevelChrc(Characteristic):
     UUID = '00002a19-0000-1000-8000-00805f9b34fb'
 
     def __init__(self, bus, index, service):
-        super().__init__(bus, index, self.UUID, ['read', 'notify'], service)
-        self.value = dbus.Array([dbus.Byte(100)], signature='y')  # 100%
+        Characteristic.__init__(self, bus, index, self.UUID, ['read', 'notify'], service)
+        self.value = dbus.Array([dbus.Byte(100)], signature='y')
 
 
 # --- BLE Advertisement ---
@@ -471,7 +468,6 @@ class Advertisement(dbus.service.Object):
 # --- Input functions ---
 
 def send_key(hid_service, char):
-    """Send a single character as a keyboard HID report."""
     if char in SHIFT_CHARS:
         base = SHIFT_CHARS[char]
         modifier = 0x02  # Left Shift
@@ -479,46 +475,70 @@ def send_key(hid_service, char):
         base = char
         modifier = 0
     else:
-        print(f'Unknown character: {char!r}')
+        print(f'  Unknown character: {char!r}')
         return
     _, keycode = CHAR_TO_KEYCODE[base]
     # Key down
     hid_service.kb_report.send_report([modifier, 0x00, keycode, 0, 0, 0, 0, 0])
-    # Key up (small delay handled by GLib idle)
-    GLib.timeout_add(20, lambda: hid_service.kb_report.send_report([0] * 8) or False)
+    # Key up after 80ms
+    GLib.timeout_add(80, lambda: hid_service.kb_report.send_report([0] * 8) or False)
 
 
 def send_string(hid_service, text):
-    """Send a string character by character with 50ms delays."""
     for i, char in enumerate(text):
-        GLib.timeout_add(i * 70, lambda c=char: send_key(hid_service, c) or False)
-
-
-def move_mouse(hid_service, dx, dy):
-    """Send relative mouse movement. dx/dy clamped to -127..127 per report."""
-    dx = max(-127, min(127, dx))
-    dy = max(-127, min(127, dy))
-    # Convert to unsigned bytes for negative values
-    dx_byte = dx & 0xFF
-    dy_byte = dy & 0xFF
-    hid_service.mouse_report.send_report([0x00, dx_byte, dy_byte, 0x00])
-    GLib.timeout_add(20, lambda: hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
-
-
-def click(hid_service):
-    """Send left mouse click (button down + up)."""
-    hid_service.mouse_report.send_report([0x01, 0x00, 0x00, 0x00])  # button 1 down
-    GLib.timeout_add(50, lambda: hid_service.mouse_report.send_report([0, 0, 0, 0]) or False)
+        GLib.timeout_add(i * 200, lambda c=char: send_key(hid_service, c) or False)
+    print(f'  Sending {len(text)} chars...')
 
 
 # --- Main ---
 
+AGENT_IFACE = 'org.bluez.Agent1'
+AGENT_MANAGER_IFACE = 'org.bluez.AgentManager1'
+
+
+class PairingAgent(dbus.service.Object):
+    """Auto-accept pairing agent — handles bonding requests from iOS."""
+    PATH = '/org/bluez/baremobile/agent'
+
+    def __init__(self, bus):
+        dbus.service.Object.__init__(self, bus, self.PATH)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
+    def Release(self):
+        pass
+
+    @dbus.service.method(AGENT_IFACE, in_signature='os', out_signature='')
+    def AuthorizeService(self, device, uuid):
+        print(f'  [Agent] Authorizing service {uuid} for {device}')
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='')
+    def RequestAuthorization(self, device):
+        print(f'  [Agent] Authorized {device}')
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='u')
+    def RequestPasskey(self, device):
+        print(f'  [Agent] Passkey request from {device} — returning 0')
+        return dbus.UInt32(0)
+
+    @dbus.service.method(AGENT_IFACE, in_signature='ouq', out_signature='')
+    def DisplayPasskey(self, device, passkey, entered):
+        print(f'  [Agent] Passkey: {passkey:06d}')
+
+    @dbus.service.method(AGENT_IFACE, in_signature='ou', out_signature='')
+    def RequestConfirmation(self, device, passkey):
+        print(f'  [Agent] Confirming passkey {passkey:06d} for {device}')
+
+    @dbus.service.method(AGENT_IFACE, in_signature='o', out_signature='s')
+    def RequestPinCode(self, device):
+        return '0000'
+
+    @dbus.service.method(AGENT_IFACE, in_signature='', out_signature='')
+    def Cancel(self):
+        print('  [Agent] Pairing cancelled')
+
+
 def find_adapter(bus):
-    """Find the first Bluetooth adapter path."""
-    remote_om = dbus.Interface(
-        bus.get_object(BLUEZ_SERVICE, '/'),
-        DBUS_OM_IFACE
-    )
+    remote_om = dbus.Interface(bus.get_object(BLUEZ_SERVICE, '/'), DBUS_OM_IFACE)
     objects = remote_om.GetManagedObjects()
     for path, interfaces in objects.items():
         if GATT_MANAGER_IFACE in interfaces:
@@ -532,12 +552,29 @@ def main():
 
     adapter_path = find_adapter(bus)
     if not adapter_path:
-        print('ERROR: No Bluetooth adapter found with GATT Manager support')
+        print('ERROR: No Bluetooth adapter with GATT Manager support')
         sys.exit(1)
+    print(f'Adapter: {adapter_path}')
 
-    print(f'Using adapter: {adapter_path}')
+    # Set adapter name
+    adapter_props = dbus.Interface(
+        bus.get_object(BLUEZ_SERVICE, adapter_path), DBUS_PROP_IFACE)
+    adapter_props.Set('org.bluez.Adapter1', 'Alias', 'baremobile')
+    adapter_props.Set('org.bluez.Adapter1', 'Powered', dbus.Boolean(True))
+    adapter_props.Set('org.bluez.Adapter1', 'Pairable', dbus.Boolean(True))
+    # Do NOT set Discoverable=True — that enables Classic BT which creates a
+    # duplicate entry on iPhone. BLE discovery uses the LE advertisement only.
+    adapter_props.Set('org.bluez.Adapter1', 'Discoverable', dbus.Boolean(False))
 
-    # Register GATT application
+    # Register pairing agent — auto-accepts bonding from iPhone
+    agent = PairingAgent(bus)
+    agent_manager = dbus.Interface(
+        bus.get_object(BLUEZ_SERVICE, '/org/bluez'), AGENT_MANAGER_IFACE)
+    agent_manager.RegisterAgent(agent.PATH, 'KeyboardDisplay')
+    agent_manager.RequestDefaultAgent(agent.PATH)
+    print('Pairing agent registered (auto-accept)')
+
+    # Build GATT application
     app = Application(bus)
     hid_service = HIDService(bus, 0)
     app.add_service(hid_service)
@@ -545,73 +582,69 @@ def main():
     app.add_service(BatteryService(bus, 2))
 
     gatt_manager = dbus.Interface(
-        bus.get_object(BLUEZ_SERVICE, adapter_path),
-        GATT_MANAGER_IFACE
-    )
-
+        bus.get_object(BLUEZ_SERVICE, adapter_path), GATT_MANAGER_IFACE)
     adv_manager = dbus.Interface(
-        bus.get_object(BLUEZ_SERVICE, adapter_path),
-        LE_ADVERTISING_MANAGER_IFACE
-    )
-
+        bus.get_object(BLUEZ_SERVICE, adapter_path), LE_ADVERTISING_MANAGER_IFACE)
     adv = Advertisement(bus)
 
     mainloop = GLib.MainLoop()
 
-    def register_app_cb():
-        print('GATT application registered')
+    def on_app_registered():
+        print('GATT application registered OK')
 
-    def register_app_error_cb(error):
-        print(f'ERROR registering GATT application: {error}')
+    def on_app_error(error):
+        print(f'ERROR registering GATT app: {error}')
         mainloop.quit()
 
-    def register_adv_cb():
-        print('Advertisement registered')
-        print('Waiting for iPhone to connect...')
-        print('On iPhone: Settings > Bluetooth > tap "baremobile"')
+    def on_adv_registered():
+        print('Advertisement registered OK')
+        print('On iPhone: Settings > Bluetooth > tap "baremobile" to pair')
 
-    def register_adv_error_cb(error):
+    def on_adv_error(error):
         print(f'ERROR registering advertisement: {error}')
         mainloop.quit()
 
     gatt_manager.RegisterApplication(
         app.get_path(), {},
-        reply_handler=register_app_cb,
-        error_handler=register_app_error_cb
-    )
+        reply_handler=on_app_registered,
+        error_handler=on_app_error)
 
     adv_manager.RegisterAdvertisement(
         adv.path, {},
-        reply_handler=register_adv_cb,
-        error_handler=register_adv_error_cb
-    )
+        reply_handler=on_adv_registered,
+        error_handler=on_adv_error)
 
-    # Handle CLI commands
-    args = sys.argv[1:]
-    if args:
-        cmd = args[0]
-        if cmd == 'send_key' and len(args) >= 2:
-            GLib.timeout_add(2000, lambda: send_key(hid_service, args[1]) or False)
-            GLib.timeout_add(3000, lambda: mainloop.quit() or False)
-        elif cmd == 'send_string' and len(args) >= 2:
-            text = ' '.join(args[1:])
-            delay = len(text) * 70 + 2000
-            GLib.timeout_add(2000, lambda: send_string(hid_service, text) or False)
-            GLib.timeout_add(delay + 1000, lambda: mainloop.quit() or False)
-        elif cmd == 'click':
-            GLib.timeout_add(2000, lambda: click(hid_service) or False)
-            GLib.timeout_add(3000, lambda: mainloop.quit() or False)
-        elif cmd == 'move' and len(args) >= 3:
-            dx, dy = int(args[1]), int(args[2])
-            GLib.timeout_add(2000, lambda: move_mouse(hid_service, dx, dy) or False)
-            GLib.timeout_add(3000, lambda: mainloop.quit() or False)
+    # Interactive command prompt via GLib IO watch
+    def handle_command(line):
+        parts = line.strip().split()
+        if not parts:
+            return
+        cmd = parts[0]
+        if cmd == 'send_key' and len(parts) >= 2:
+            send_key(hid_service, parts[1])
+        elif cmd == 'send_string' and len(parts) >= 2:
+            send_string(hid_service, ' '.join(parts[1:]))
+        elif cmd in ('quit', 'exit', 'q'):
+            mainloop.quit()
+        elif cmd == 'help':
+            print('  send_key <char> | send_string <text> | quit')
         else:
-            print(f'Unknown command: {cmd}')
-            print('Usage: send_key <char> | send_string <text> | click | move <dx> <dy>')
-            sys.exit(1)
-    else:
-        print('GATT server running. Press Ctrl+C to stop.')
-        print('Commands: send_key, send_string, click, move')
+            print(f'  Unknown: {cmd}. Type "help" for commands.')
+
+    def watch_stdin(source, condition):
+        if condition & GLib.IOCondition.HUP:
+            return False
+        line = sys.stdin.readline()
+        if line:
+            handle_command(line)
+            sys.stdout.write('> ')
+            sys.stdout.flush()
+        return True
+
+    GLib.io_add_watch(sys.stdin, GLib.IOCondition.IN | GLib.IOCondition.HUP, watch_stdin)
+
+    print('Ready. Type commands at > prompt (or "help").')
+    print('> ', end='', flush=True)
 
     try:
         mainloop.run()
