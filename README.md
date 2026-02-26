@@ -23,7 +23,7 @@ No Appium. No Java server. No Espresso. Zero dependencies. Same patterns as [bar
 
 **Android:** Full screen control via ADB -- from a host machine or on-device via Termux. Plus direct device APIs (SMS, calls, GPS, camera, clipboard) through Termux:API.
 
-**iOS:** Same `snapshot()` → `tap(ref)` pattern as Android. Accessibility tree with `[ref=N]` markers, tap via Full Keyboard Access + BLE keyboard, screenshots. No Mac, no Xcode required. Cable-free possible (WiFi + Bluetooth) after one-time USB setup.
+**iOS:** Same `snapshot()` → `tap(ref)` pattern as Android. Hierarchical accessibility tree via WebDriverAgent (WDA), coordinate-based tap, type, scroll, screenshots. Shared `prune()` + `formatTree()` pipeline — identical YAML output. No Mac, no Xcode, no Bluetooth adapter required. Pure HTTP at runtime — setup uses pymobiledevice3 (Python 3.12).
 
 ## Install
 
@@ -88,7 +88,7 @@ See [docs/customer-guide.md](docs/customer-guide.md) for Termux setup and all mo
 | **Core ADB** | Full screen control from a host machine -- snapshots, tap/type/swipe, screenshots, app lifecycle | `adb` + USB debugging |
 | **Termux ADB** | Same screen control, runs on the phone itself -- no host needed | Termux + wireless debugging |
 | **Termux:API** | Direct device APIs -- SMS, calls, GPS, camera, clipboard, contacts, notifications | Termux + Termux:API app |
-| **iOS** | Same snapshot→tap(ref) as Android. Full Keyboard Access + BLE keyboard. Screenshots. | Bluetooth adapter, Python 3.12, Full Keyboard Access |
+| **iOS** | Same snapshot→tap(ref) as Android. WDA-based — real element tree, native click, type, scroll. | WDA on device, USB tunnel, Python 3.12 (setup only) |
 
 ## What it handles automatically
 
@@ -158,13 +158,13 @@ For detailed setup and usage of each module, see **[docs/customer-guide.md](docs
 
 Three vanilla JS modules. Zero dependencies. Same API patterns.
 
-| | [**barebrowse**](https://npmjs.com/package/barebrowse) | [**baremobile**](https://npmjs.com/package/baremobile) | [**bareagent**](https://npmjs.com/package/bare-agent) |
+| | [**bareagent**](https://npmjs.com/package/bare-agent) | [**barebrowse**](https://npmjs.com/package/barebrowse) | [**baremobile**](https://npmjs.com/package/baremobile) |
 |---|---|---|---|
-| **Does** | Gives agents a real browser | Gives agents an Android device | Gives agents a think→act loop |
-| **How** | URL in → pruned snapshot out | Screen in → pruned snapshot out | Goal in → coordinated actions out |
-| **Replaces** | Playwright, Selenium, Puppeteer | Appium, Espresso, UIAutomator2 | LangChain, CrewAI, AutoGen |
-| **Interfaces** | Library · CLI · MCP | Library · CLI · MCP | Library · CLI · subprocess |
-| **Solo or together** | Works standalone | Works standalone | Orchestrates both as tools |
+| **Does** | Gives agents a think→act loop | Gives agents a real browser | Gives agents an Android device |
+| **How** | Goal in → coordinated actions out | URL in → pruned snapshot out | Screen in → pruned snapshot out |
+| **Replaces** | LangChain, CrewAI, AutoGen | Playwright, Selenium, Puppeteer | Appium, Espresso, UIAutomator2 |
+| **Interfaces** | Library · CLI · subprocess | Library · CLI · MCP | Library · CLI · MCP |
+| **Solo or together** | Orchestrates both as tools | Works standalone | Works standalone |
 
 **What you can build:**
 
