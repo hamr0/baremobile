@@ -1,6 +1,6 @@
 # Testing Guide
 
-> 119 tests, 8 test files, zero test dependencies.
+> 136 unit + 26 integration tests, 9 test files, zero test dependencies.
 
 ## Run all tests
 
@@ -20,8 +20,8 @@ Integration tests auto-skip when no ADB device is available.
           │ Integr. │  26 tests — real device, full pipeline
           │  (26)   │  connect (16) + CLI session (10)
           ├─────────┤
-          │  Unit   │  93 tests — pure functions, no device needed
-          │  (93)   │  xml, prune, aria, interact, termux, termux-api, mcp
+          │  Unit   │  136 tests — pure functions, no device needed
+          │  (136)  │  xml, prune, aria, interact, termux, termux-api, mcp, ios, usbmux
           └─────────┘
 ```
 
@@ -35,7 +35,7 @@ Integration tests auto-skip when no ADB device is available.
 
 Covers: XML parsing, tree pruning, YAML formatting, interaction primitives, screen control.
 
-**Unit tests (46 tests, no device needed):**
+**Unit tests (46 Android tests, no device needed):**
 
 | File | Tests | What it covers |
 |------|-------|----------------|
@@ -155,66 +155,65 @@ Covers: tool definitions, JSON-RPC dispatch, snapshot save logic.
 
 ---
 
-### iOS (pymobiledevice3 + BLE HID)
+### iOS (WDA)
 
-Covers: iPhone screenshot capture, app lifecycle, device info via pymobiledevice3; BLE HID keyboard/mouse input via BlueZ.
+Covers: `src/ios.js` — WDA-based iPhone control via HTTP. Same page-object pattern as Android.
 
-**Prerequisite checker pattern:** iOS tests require external tools (Python 3.12, pymobiledevice3, usbmuxd, iPhone connected). A standalone checker validates all prerequisites before tests run:
+**Unit tests (24 tests, no device needed):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `test/unit/ios.test.js` | 24 | Module exports (2), translateWda node shape — bounds, hierarchy, invisible leaf skip, invisible container passthrough, switch/checked, editable, scrollable, name→contentDesc, self-closing, entities, disabled (13), prune+formatTree pipeline — refs, YAML format, checked/disabled state (5), CLASS_MAP integration (2), coordinate calculation from bounds (2) |
+| `test/unit/usbmux.test.js` | 4 | listDevices plist parsing (1), connectDevice binary packet construction (1), forward TCP server lifecycle (1), protocol header format (1) |
+
+**Real-device tests (15 tests, requires iPhone + WDA running):**
+
+| File | Tests | What it covers |
+|------|-------|----------------|
+| `ios/test-wda.js` | 15 | snapshot with refs (1), screenshot PNG (1), launch Settings (1), tap Cell element (1), back navigation (1), scroll (1), swipe (1), home (1), waitForText (1), type into field (1), longPress (1), tapXY coordinates (1), press home/volumeup/volumedown (3) |
+
+Real-device tests require WDA running at `localhost:8100`. Start with `bash ios/setup.sh`.
 
 ```bash
-npm run ios:check    # validate prerequisites + iPhone connection
+# Setup (once per session)
+bash ios/setup.sh          # tunnel + DDI + WDA + port forward
+
+# Run real-device tests
+node ios/test-wda.js       # 15 tests against real iPhone
+
+# Run unit tests (no device needed)
+node --test test/unit/ios.test.js
+
+# Teardown
+bash ios/teardown.sh
 ```
 
-The checker (`test/ios/check-prerequisites.js`) validates: Python 3.12 installed, pymobiledevice3 available, usbmuxd running, iPhone connected via USB, Developer Mode enabled, tunneld reachable. Each check has a fix hint on failure.
+**Manually verified E2E flows (iOS):**
 
-**Spike tests (8 tests, requires iPhone + USB):**
+| Flow | Steps |
+|------|-------|
+| Launch Settings + read screen | launch → snapshot → verify Wi-Fi/Bluetooth/General visible |
+| Tap element by ref | snapshot → find Cell → tap(ref) → snapshot → verify navigation |
+| Type in search field | find SearchField → type(ref, "wifi") → verify results |
+| Back navigation | tap into sub-page → back() → verify return |
+| Scroll long lists | Settings → scroll(ref, 'down') → verify new items |
+| Screenshot capture | screenshot() → verify PNG magic bytes + reasonable size |
+| Home button | home() → verify returns to launcher |
+| Airplane Mode toggle | Settings → tap Airplane Mode switch → verify state change |
 
-| File | Tests | What it covers |
-|------|-------|----------------|
-| `test/ios/screenshot.test.js` | 8 | Device detection via usbmux (1), lockdown info (1), developer mode status (1), developer image mount (1), screenshot capture + size validation (1), process list (1), app launch + kill (1), screenshot latency measurement (1) |
+See [ios/SETUP.md](../../ios/SETUP.md) for first-time iOS setup and WDA installation.
 
-Tests call `python3.12 -m pymobiledevice3` via `child_process.execFile`. RSD tunnel address resolved from: env var `RSD_ADDRESS`, file `/tmp/ios-rsd-address` (written by `ios-tunnel.sh`), or `remote browse` auto-discovery.
+**iOS MCP/CLI verification (manual, requires iPhone + WDA):**
 
-Developer service tests (screenshot, processes, launch/kill, latency) gracefully skip when Developer Mode is not enabled or tunneld is not running — they log the skip reason instead of failing.
-
-**BLE HID tests (6 tests, requires iPhone + Bluetooth adapter):**
-
-| File | Tests | What it covers |
-|------|-------|----------------|
-| `test/ios/ble-hid.test.js` | 6 | BLE adapter detection, GATT server startup, keyboard input (send_string), mouse movement + click, combo keyboard+mouse, AssistiveTouch tap at coordinates |
-
-BLE HID tests follow the same pattern: prerequisite check (BlueZ version, adapter capabilities, `dbus-python` installed), graceful skip when BLE hardware not available. Python BLE GATT server called via `child_process.execFile`.
-
-**Integration tests (6 tests, requires iPhone + USB + Bluetooth):**
-
-| File | Tests | What it covers |
-|------|-------|----------------|
-| `test/ios/integration.test.js` | 6 | Screenshot home screen, launch Settings + screenshot, BLE mouse tap Wi-Fi row, verify navigation via screenshot, BLE keyboard type in search bar, verify typed text via screenshot |
-
-Integration tests validate the full loop: pymobiledevice3 screenshots + BLE HID input working together end-to-end. ~40s total runtime.
-
-```bash
-npm run ios:check    # validate prerequisites + iPhone connection
-npm run test:ios     # 20 iOS tests (8 pymobiledevice3 + 6 BLE HID + 6 integration)
-```
-
-```
-test/ios/
-  check-prerequisites.js   # validate python, pymobiledevice3, usbmuxd, device
-  screenshot.test.js       # pymobiledevice3: device, lockdown, screenshot, app lifecycle (8 tests)
-  ble-hid-poc.py           # BLE HID GATT server (Python, BlueZ D-Bus)
-  ble-hid.test.js          # BLE HID: adapter, keyboard, mouse, combo (6 tests)
-  integration.test.js      # Integration: screenshot + BLE tap + type + verify (6 tests)
-```
-
-**Upcoming (Phase 2.9):**
-
-| File | Purpose |
-|------|---------|
-| `scripts/ios-live-test.js` | Live speed test — measures screenshot, BLE tap, type latency with real iPhone |
-| `test/ios/ios-connect.test.js` | Integration tests for `src/ios.js` module — connect, screenshot, launch, tapXY, type |
-
-See [dev-setup.md](dev-setup.md#ios) for iOS prerequisites and setup.
+| Step | Command | Expected |
+|------|---------|----------|
+| iOS session via CLI | `baremobile open --platform=ios` | Session started with platform ios |
+| iOS snapshot | `baremobile snapshot` | YAML tree with iOS elements (Cell, NavBar) |
+| iOS close | `baremobile close` | Session closed |
+| MCP dual-platform | `snapshot({platform: 'ios'})` via MCP | iOS tree; `snapshot()` → Android tree |
+| Cert warning | Delete `/tmp/baremobile-ios-signed`, call iOS MCP snapshot | Warning prepended |
+| Setup wizard | `baremobile setup` → pick iOS | Guides through all steps |
+| Resign | `baremobile ios resign` | Prompts for creds, signs, records timestamp |
 
 ---
 
@@ -256,3 +255,18 @@ describe('my test', { skip: !hasDevice && 'No ADB device' }, () => {
 - Integration tests must auto-skip without a device (top-level await for detection)
 - Don't cache refs across snapshots — they reset every call
 - Add settle delays after actions (`await new Promise(r => setTimeout(r, 500))`) before snapshotting
+
+### Cross-platform testing (Android + iOS)
+
+Both platforms use the same page-object pattern: `connect()` → `snapshot()` → `tap(ref)`. Key differences for test authors:
+
+| | Android | iOS |
+|---|---|---|
+| Transport | ADB (`child_process.execFile`) | WDA HTTP (`fetch()`) |
+| Import | `import { connect } from 'baremobile'` | `import { connect } from 'baremobile/src/ios.js'` |
+| App IDs | Package: `com.android.settings` | Bundle: `com.apple.Preferences` |
+| Setup | `adb devices` | `bash ios/setup.sh` |
+| Unit tests | `node --test test/unit/*.test.js` | Same (includes `ios.test.js`) |
+| Device tests | `node --test test/integration/*.test.js` | `node ios/test-wda.js` |
+| Snapshot format | Hierarchical YAML tree | Hierarchical YAML tree (shared pipeline) |
+| back() | ADB keypress | Find back button or swipe gesture |

@@ -1,6 +1,6 @@
 # baremobile — Customer Guide
 
-> Control any phone from code. Android today, iOS coming.
+> Control any phone from code. Android for all use cases, iOS for QA/testing.
 
 ---
 
@@ -19,7 +19,7 @@ No Appium. No Java server. No build step. Zero required dependencies.
 | 1 | **Core ADB** | Android | QA, automation | Full screen control — accessibility tree snapshots, tap/type/swipe by ref, screenshots, app lifecycle | `adb` in PATH, USB debugging enabled |
 | 2 | **Termux ADB** | Android | QA, autonomous agents | Same full screen control, but runs on the phone itself — no host machine needed | Termux app, wireless debugging |
 | 3 | **Termux:API** | Android | QA, autonomous agents | Direct Android APIs — SMS, calls, location, camera, clipboard, contacts, notifications. No screen control. | Termux + Termux:API app |
-| 4 | **iOS (USB/WiFi + BLE HID + pymobiledevice3)** | iOS | QA | Accessibility snapshots + `tap(ref)` via Full Keyboard Access + screenshots. Same `snapshot()` → `tap(ref)` pattern as Android. Cable-free possible: WiFi for device communication, Bluetooth for input. | Bluetooth adapter, Python 3.12 + 3.14, BlueZ 5.56+. One-time USB for initial pairing. Full Keyboard Access enabled on iPhone. |
+| 4 | **iOS (WebDriverAgent)** | iOS | QA/testing only | Same `snapshot()` → `tap(ref)` as Android. Real accessibility tree via WDA, native element click, type, scroll, screenshots. Pure HTTP at runtime. Auto-discovery: WiFi (cached) > USB (usbmux.js) > localhost. | WDA on device, USB cable (required), Python 3.12 (setup only) |
 
 ### How they relate
 
@@ -223,24 +223,28 @@ await page.launch('com.google.android.apps.maps');
 
 ---
 
-## Module 4: iOS — WiFi + BLE HID + pymobiledevice3
+## Module 4: iOS — WebDriverAgent (WDA)
 
-**Who it's for:** QA teams wanting iPhone control from Linux — no Mac, no Xcode, no app installed on the phone. Fully cable-free after initial setup.
+**Who it's for:** QA teams wanting iPhone control from Linux — no Mac, no Xcode. Same `snapshot()` → `tap(ref)` pattern as Android, backed by WDA over HTTP. Shared pruning pipeline — identical hierarchical YAML output.
 
-**Status:** Accessibility snapshots, focus-based tap, screenshots, app lifecycle, BLE keyboard/mouse — all working. Cable-free via WiFi tunnel + Bluetooth.
+**Status:** Full ref-based control — hierarchical accessibility tree, coordinate-based tap, type, scroll, swipe, screenshots, app lifecycle, unlock. All working. USB cable required (WiFi tunnel requires Mac/Xcode for pairing — not possible on Linux).
+
+**Important:** iOS is QA/testing only. Personal assistant use case requires Android (ADB WiFi works natively, no cable needed). iOS requires USB because the WDA process depends on a USB tunnel (RemoteXPC) that cannot be established without Xcode WiFi pairing.
 
 ### What your agent can do
 
 | Capability | How |
 |-----------|-----|
-| **Read the screen** | `page.snapshot()` — accessibility elements as YAML with `[ref=N]` markers |
-| **Tap elements** | `page.tap(1)` — focus-navigate + Enter (requires VoiceOver), or `page.tapXY(x, y)` — BLE mouse |
-| **Type text** | `page.type('hello')` — BLE HID keyboard |
-| **Navigate** | `page.back()`, `page.home()`, `page.press('enter')` |
-| **Launch apps** | `page.launch('com.apple.Preferences')` |
+| **Read the screen** | `page.snapshot()` — hierarchical YAML with `[ref=N]` markers (same format as Android) |
+| **Tap elements** | `page.tap(1)` — coordinate tap at bounds center |
+| **Type text** | `page.type(2, 'hello')` — coordinate tap to focus + WDA keys |
+| **Navigate** | `page.back()` (searches refMap for back button), `page.home()` |
+| **Scroll** | `page.scroll(ref, 'down')` — coordinate-based swipe within bounds |
+| **Launch apps** | `page.launch('com.apple.Preferences')` — by bundle ID |
 | **Take screenshots** | `page.screenshot()` — PNG buffer |
 | **Wait for state** | `page.waitForText('Settings', 5000)` — poll until text appears |
-| **Vision fallback** | `page.tapXY(x, y)` — BLE HID mouse for coordinate-based tap |
+| **Vision fallback** | `page.tapXY(x, y)` — coordinate-based tap |
+| **Unlock device** | `page.unlock(passcode)` — unlock with passcode. Throws if passcode required but not provided, or wrong passcode. |
 
 ### Quick start
 
@@ -249,13 +253,17 @@ import { connect } from 'baremobile/src/ios.js';
 
 const page = await connect();
 console.log(await page.snapshot());
-// - Header [ref=0] "Settings"
-// - Button [ref=1] "Wi-Fi" (vanCampers)
-// - Button [ref=2] "Bluetooth"
+// - App
+//   - Window
+//     - NavBar "Settings"
+//       - Text "Settings"
+//     - List [ref=1]
+//       - Cell [ref=2] "Wi-Fi"
+//       - Cell [ref=3] "Bluetooth"
 
-await page.tapXY(187, 300);                // BLE mouse tap
+await page.tap(2);                         // coordinate tap at bounds center
 await page.waitForText('Wi-Fi', 10000);    // verify navigation
-await page.type('network-name');           // BLE keyboard
+await page.type(4, 'network-name');        // type into search field
 const png = await page.screenshot();       // visual verification
 page.close();
 ```
@@ -263,73 +271,88 @@ page.close();
 ### Architecture
 
 ```
-Linux machine                              iPhone
-┌──────────────────┐                 ┌──────────────┐
-│  baremobile-ios   │                │              │
-│                   │── WiFi ───────▶│ snapshots    │
-│  pymobiledevice3  │   (tunnel)     │ screenshots  │
-│  (Python)         │                │ app launch   │
-│                   │                │ focus nav    │
-│                   │── Bluetooth ──▶│ tap (Enter)  │
-│  BlueZ BLE HID   │                │ type (kbd)   │
-│  (Python/D-Bus)   │                │ swipe (mouse)│
-└──────────────────┘                 └──────────────┘
-       ↑
-  Node.js calls Python via child_process.execFile
+WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
+                                                          (shared with Android)
+
+ios/setup.sh starts:
+  1. USB tunnel (pymobiledevice3)
+  2. DDI mount (developer disk image)
+  3. WDA launch (XCUITestService)
+
+connect() auto-discovers WDA:
+  1. Cached WiFi — /tmp/baremobile-ios-wifi → direct HTTP
+  2. USB — usbmux.js TCP proxy → get WiFi IP from /status → cache → switch to WiFi
+  3. Fallback — localhost:8100
+
+Port forwarding: Node.js usbmux client (src/usbmux.js) — replaces pymobiledevice3 forwarder.
 ```
 
-Two wireless channels:
-- **WiFi (pymobiledevice3 tunnel):** Accessibility snapshots (`iter_elements()`), screenshots, app launch/kill, focus navigation (`move_focus()`) — all over WiFi after one-time USB pairing
-- **Bluetooth (BLE HID):** Keyboard input → any text field. Mouse → tap at coordinates. Enter key → activate focused element. Python GATT server using BlueZ D-Bus API.
-
-### What works
-
-| Capability | Status | Latency |
-|-----------|--------|---------|
-| Accessibility snapshot | **Working** | ~3-5s |
-| Focus-based tap | **Working** | ~2-3s |
-| Screenshot | Working | ~2.5s |
-| App launch | Working | ~4s |
-| App kill | Working | ~4s |
-| Keyboard input (BLE) | Working | ~200ms/char |
-| Mouse tap at coordinates (BLE) | Working | ~1-2s |
-| WiFi tunnel | **Working** | Same as USB |
-| Cable-free loop (snapshot → tap → verify) | **Working** | ~10s |
+Translation layer + shared pipeline. `translateWda()` converts WDA XML attributes to Android node shape, then `prune()` assigns refs and `formatTree()` produces indented YAML. Actions use coordinate taps from node bounds — no predicate lookups, no WDA element search.
 
 ### Requirements
 
 | Requirement | Why |
 |------------|-----|
-| One-time USB | Initial trust + `remote pair` for WiFi access. Then cable-free. |
-| Phone unlocked | Developer image mount needs it |
-| Python 3.12 | pymobiledevice3 (3.14 has build failures with native deps) |
-| Python 3.14 (system) | BLE HID — dbus-python/PyGObject are system packages |
-| Bluetooth adapter | BLE HID input — must support peripheral role |
-| BlueZ 5.56+ | Linux Bluetooth stack with LE-only mode (`ControllerMode = le`) |
-| `dbus-python` + `PyGObject` | Python bindings for BlueZ D-Bus GATT API |
-| AssistiveTouch on iPhone | Required for BLE mouse → tap conversion (coordinate fallback only) |
+| WDA on device | Signed with free Apple ID (7-day cert, re-sign weekly) |
+| pymobiledevice3 | Setup only — tunnel, DDI mount, WDA launch. Python 3.12. Zero Python at runtime. |
+| USB cable (required) | WiFi tunnel requires Mac/Xcode for WiFi pairing — not possible on Linux |
+| Developer Mode on iPhone | Required for developer services |
 
-**What you DON'T need:** No Mac, no Xcode, no Apple Developer account, no app on the phone, no jailbreak, no permanent USB cable.
+**What you DON'T need:** No Mac, no Xcode, no Bluetooth adapter, no Python at runtime, no BLE pairing, no AssistiveTouch, no Full Keyboard Access.
 
 ### Setup
 
 ```bash
-# Install pymobiledevice3
-pip install pymobiledevice3
+# Interactive setup wizard (guides through all steps):
+baremobile setup        # pick iOS
 
-# Install BLE HID dependencies (Fedora)
-sudo dnf install python3-dbus python3-gobject
-
-# First-time iPhone setup (USB required once)
-./scripts/ios-tunnel.sh setup    # enables dev mode, WiFi pair
-
-# Start the bridge (each session — pick one)
-./scripts/ios-tunnel.sh              # USB tunnel + BLE HID
-./scripts/ios-tunnel.sh --wifi       # WiFi tunnel + BLE HID (cable-free)
-
-# Run iOS tests
-npm run test:ios
+# Or manually:
+# First-time: see ios/SETUP.md (iPhone pairing + WDA installation)
+# Each session:
+./ios/setup.sh          # tunnel + DDI + WDA + port forward
+# When done:
+./ios/teardown.sh       # or: baremobile ios teardown
 ```
+
+### Prerequisites
+
+| Requirement | Why |
+|------------|-----|
+| Apple developer account (free) | Signing WDA — free cert expires every 7 days |
+| USB-C or Lightning cable | Required on Linux (WiFi tunnel needs Mac/Xcode) |
+| pymobiledevice3 | Setup only — tunnel, DDI mount, WDA launch |
+| AltServer-Linux | Re-signing WDA cert (placed at `.wda/AltServer`) |
+
+### Re-signing WDA cert (every 7 days)
+
+Free Apple ID certs expire after 7 days. baremobile tracks this and warns you:
+
+```bash
+baremobile ios resign   # interactive: prompts for Apple ID, password, 2FA
+```
+
+The MCP server auto-warns when the cert is >6 days old — the warning appears in the first iOS snapshot.
+
+### CLI session (iOS)
+
+```bash
+baremobile open --platform=ios           # start iOS daemon
+baremobile snapshot                      # YAML tree with iOS elements
+baremobile tap 2                         # tap by ref
+baremobile launch com.apple.Preferences  # launch Settings
+baremobile close                         # shut down
+```
+
+### MCP usage (iOS)
+
+All MCP tools accept optional `platform: "ios"`:
+```
+snapshot({platform: 'ios'})    → iOS accessibility tree
+tap({ref: '2', platform: 'ios'}) → tap on iPhone
+snapshot()                      → Android (default)
+```
+
+Both platforms can be used in the same MCP session — each gets its own lazy connection.
 
 ---
 
@@ -353,7 +376,7 @@ npx baremobile close                        # shut down
 
 | Category | Command | Description |
 |----------|---------|-------------|
-| Session | `open [--device=SERIAL]` | Start daemon |
+| Session | `open [--device=SERIAL] [--platform=android\|ios]` | Start daemon |
 | | `close` | Shut down daemon |
 | | `status` | Check if session is alive |
 | Screen | `snapshot` | ARIA snapshot → `.baremobile/screen-*.yml` |
@@ -374,6 +397,9 @@ npx baremobile close                        # shut down
 | Waiting | `wait-text <text> [--timeout=N]` | Poll until text appears |
 | | `wait-state <ref> <state> [--timeout=N]` | Poll until state matches |
 | Logging | `logcat [--filter=TAG] [--clear]` | Dump logcat → `.baremobile/logcat-*.json` |
+| Setup | `setup` | Interactive setup wizard |
+| | `ios resign` | Re-sign WDA cert (7-day Apple free cert) |
+| | `ios teardown` | Kill iOS tunnel/WDA processes |
 | MCP | `mcp` | Start MCP server (JSON-RPC over stdio) |
 
 ### Output conventions
@@ -409,7 +435,7 @@ Every response has `ok: true|false`. File-producing commands include `file`. Err
 → **Termux:API.** No screen control needed, direct API access.
 
 ### "I want to test iOS apps from Linux"
-→ **iOS module.** Accessibility snapshots + focus-based tap + BLE keyboard/mouse. Cable-free after one-time USB setup. Same `snapshot()` → `tap(ref)` pattern as Android.
+→ **iOS module.** WDA-based — real element tree, native click, type, scroll. Same `snapshot()` → `tap(ref)` pattern as Android. USB required.
 
 ### "I want cross-platform test suites"
 → Core ADB for Android + iOS module for iPhone. Same agent, different devices.
@@ -444,5 +470,5 @@ Things your agent doesn't have to think about:
 
 - [Full API reference](../README.md#api)
 - [Product roadmap](01-product/prd.md)
-- [iOS exploration & spike results](00-context/ios-exploration.md)
+- [iOS details in PRD](01-product/prd.md) (Phase 2.7–3.0)
 - [Dev setup guide](04-process/dev-setup.md)

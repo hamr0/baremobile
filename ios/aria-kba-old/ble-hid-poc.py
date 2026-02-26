@@ -22,12 +22,15 @@ Requires:
 Based on HeadHodge Bluez-HID-over-Gatt-Keyboard-Peripheral.
 """
 
+import os
 import sys
 import dbus
 import dbus.exceptions
 import dbus.service
 import dbus.mainloop.glib
 from gi.repository import GLib
+
+FIFO_PATH = '/tmp/ios-ble-hid.fifo'
 
 BLUEZ_SERVICE = 'org.bluez'
 GATT_MANAGER_IFACE = 'org.bluez.GattManager1'
@@ -556,6 +559,31 @@ def send_hid(hid_service, modifier, keycode):
     GLib.timeout_add(80, lambda: hid_service.kb_report.send_report([0] * 8) or False)
 
 
+def send_keys_combo(hid_service, key_names):
+    """Send multiple keys pressed simultaneously in one HID report."""
+    keycodes = []
+    modifier = 0
+    for name in key_names:
+        name = name.lower()
+        if name in SPECIAL_KEYS:
+            m, k = SPECIAL_KEYS[name]
+            modifier |= m
+            keycodes.append(k)
+        elif name in CHAR_TO_KEYCODE:
+            m, k = CHAR_TO_KEYCODE[name]
+            modifier |= m
+            keycodes.append(k)
+        else:
+            print(f'  Unknown key in combo: {name!r}')
+            return
+    # Fill up to 6 key slots
+    while len(keycodes) < 6:
+        keycodes.append(0)
+    report = [modifier, 0x00] + keycodes[:6]
+    hid_service.kb_report.send_report(report)
+    GLib.timeout_add(80, lambda: hid_service.kb_report.send_report([0] * 8) or False)
+
+
 def send_string(hid_service, text):
     for i, char in enumerate(text):
         GLib.timeout_add(i * 200, lambda c=char: send_key(hid_service, c) or False)
@@ -741,6 +769,8 @@ def main():
             click(hid_service)
         elif cmd == 'send_hid' and len(parts) >= 3:
             send_hid(hid_service, int(parts[1], 0), int(parts[2], 0))
+        elif cmd == 'send_combo' and len(parts) >= 2:
+            send_keys_combo(hid_service, parts[1:])
         elif cmd == 'move' and len(parts) >= 3:
             move_mouse(hid_service, int(parts[1]), int(parts[2]))
         elif cmd == 'scroll' and len(parts) >= 2:
@@ -749,6 +779,7 @@ def main():
             mainloop.quit()
         elif cmd == 'help':
             print('  send_key <char|name> | send_hid <mod> <keycode> | send_string <text>')
+            print('  send_combo <key1> <key2> ... — press multiple keys simultaneously')
             print('  click | move <dx> <dy> | scroll <amount> | quit')
             print('  Named keys: enter, space, right, left, up, down, escape, tab, capslock, home, end, f1-f12')
         else:
@@ -766,6 +797,33 @@ def main():
 
     GLib.io_add_watch(sys.stdin, GLib.IOCondition.IN | GLib.IOCondition.HUP, watch_stdin)
 
+    # FIFO for external control (ios.js writes commands here)
+    fifo_fd = None
+    def setup_fifo():
+        nonlocal fifo_fd
+        try:
+            os.unlink(FIFO_PATH)
+        except FileNotFoundError:
+            pass
+        os.mkfifo(FIFO_PATH)
+        os.chmod(FIFO_PATH, 0o666)
+        # Open read+write so the pipe stays open when no writer is connected
+        fifo_fd = os.open(FIFO_PATH, os.O_RDONLY | os.O_NONBLOCK)
+        fifo_file = os.fdopen(fifo_fd, 'r')
+
+        def watch_fifo(source, condition):
+            if condition & GLib.IOCondition.HUP:
+                return True  # keep watching — writer disconnected, will reconnect
+            line = fifo_file.readline()
+            if line:
+                handle_command(line)
+            return True
+
+        GLib.io_add_watch(fifo_file, GLib.IOCondition.IN | GLib.IOCondition.HUP, watch_fifo)
+        print(f'FIFO: {FIFO_PATH}')
+
+    setup_fifo()
+
     print('Ready. Type commands at > prompt (or "help").')
     print('> ', end='', flush=True)
 
@@ -773,6 +831,11 @@ def main():
         mainloop.run()
     except KeyboardInterrupt:
         print('\nStopping...')
+    finally:
+        try:
+            os.unlink(FIFO_PATH)
+        except FileNotFoundError:
+            pass
 
 
 if __name__ == '__main__':

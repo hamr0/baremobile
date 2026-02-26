@@ -45,6 +45,7 @@ export async function connect(opts = {}) {
 
   const page = {
     serial,
+    platform: 'android',
 
     async snapshot() {
       const xml = await dumpXml(adbOpts);

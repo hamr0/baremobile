@@ -1,6 +1,6 @@
 ```
   ┌─────────────┐
-  │ ■  Settings  │
+  │ ■  Settings │
   │ ─────────── │
   │ ◉ Wi-Fi     │
   │ ◉ Bluetooth │

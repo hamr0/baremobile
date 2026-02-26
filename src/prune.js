@@ -37,6 +37,9 @@ function shouldKeep(node) {
 const WRAPPER_CLASSES = new Set([
   'Group', 'View', 'FrameLayout', 'LinearLayout', 'RelativeLayout',
   'ConstraintLayout', 'CoordinatorLayout', 'ViewGroup',
+  // iOS wrappers
+  'XCUIElementTypeOther', 'XCUIElementTypeWindow',
+  'XCUIElementTypeApplication',
 ]);
 
 function isWrapper(node) {

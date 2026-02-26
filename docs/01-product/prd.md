@@ -22,9 +22,17 @@ src/
 ├── prune.js      — Pruning pipeline + ref assignment
 ├── aria.js       — Format tree as YAML with [ref=N] markers
 ├── interact.js   — tap, type, press, swipe, scroll, long-press
-└── index.js      — Public API: connect(opts) → page object
+├── index.js      — Public API: connect(opts) → page object (Android)
+├── ios.js        — iOS API: connect(opts) → page object (WDA over HTTP)
+├── usbmux.js     — Node.js usbmuxd client for iOS USB connection
+└── ios-cert.js   — WDA cert expiry tracking (7-day free Apple ID certs)
 
-mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
+mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platform
+
+ios/
+├── setup.sh      — Start iOS bridge: tunnel + DDI mount + WDA launch
+├── teardown.sh   — Stop all iOS bridge processes
+└── SETUP.md      — First-time iOS setup instructions
 
 test/
 ├── unit/
@@ -35,7 +43,7 @@ test/
     └── connect.test.js — End-to-end against emulator (6 tests)
 ```
 
-9 modules, ~1,000 lines, 109 tests (93 unit + 16 integration).
+12 modules, ~1,400 lines, 157 tests (131 unit + 26 integration).
 
 ## How it works
 
@@ -270,7 +278,7 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 
 ## Tests
 
-94 tests total (78 unit + 16 integration):
+133 tests total (117 unit + 16 integration):
 
 | Test file | Count | What |
 |-----------|-------|------|
@@ -280,6 +288,7 @@ Compact, token-efficient, same format agents already understand from barebrowse.
 | `test/unit/interact.test.js` | 14 | buildGrid (7): column/row sizing, cell resolution, errors, text. Error handling (7): press/tap/scroll/type/longPress validation |
 | `test/unit/termux.test.js` | 14 | isTermux detection, findLocalDevices parsing, adbPair/adbConnect command construction, resolveTermuxDevice error messages, localhost parsing with mixed device types |
 | `test/unit/termux-api.test.js` | 18 | Module exports (16 functions), isAvailable detection, ENOENT errors for all 15 API functions on non-Termux systems |
+| `test/unit/ios.test.js` | 24 | translateWda node shape (13), prune+formatTree pipeline (5), CLASS_MAP integration (2), coordinate calculation (2), module exports (2) |
 | `test/integration/connect.test.js` | 16 | Page API, snapshot, launch, back, screenshot, grid, tapXY, tapGrid, intent, waitForText (2), tap by ref, type into field, scroll, swipe, home |
 
 Run all:
@@ -575,7 +584,7 @@ Proved Linux → iPhone control via pymobiledevice3 over USB. 8/8 tests passing.
 
 **What works:** screenshots (2.5s avg), app launch/kill, process list, device info.
 **What doesn't:** WiFi (Apple locked it down in iOS 17+), accessibility tree (can't dump on production apps).
-**Files:** `test/ios/screenshot.test.js`, `test/ios/check-prerequisites.js`, `scripts/ios-tunnel.sh`
+**Files:** `test/ios/screenshot.test.js`, `test/ios/check-prerequisites.js` (historical — test files removed in Phase 3.0 cleanup)
 
 ### Phase 2.8: iOS — BLE HID input spike (DONE)
 
@@ -680,108 +689,159 @@ test/ios/
 
 Tools: BlueZ 5.56+, GATT server with HID Service (UUID 0x1812). Existing projects: btkbdd, EmuBTHID, HeadHodge HOGP gist.
 
-### Phase 2.9: iOS — baremobile-ios module (DONE)
+### Phase 2.9–2.95: iOS — BLE HID + pymobiledevice3 module (DONE, superseded by Phase 3.0)
 
-Unified setup script + JS module wrapping pymobiledevice3 + BLE HID into baremobile's API pattern.
+**Historical summary:** Built `src/ios.js` wrapping pymobiledevice3 (screenshots, app lifecycle) + BLE HID (keyboard/mouse input). Cable-free via WiFi tunnel + Bluetooth. Accessibility tree via `iter_elements()` + `tap(ref)` via Full Keyboard Access (Tab+Down+Space through BLE HID keyboard).
 
-`./scripts/ios-tunnel.sh` — single command that starts both the tunnel and the BLE HID GATT server.
+**Why superseded:** BLE HID approach had fundamental limitations — flat accessibility tree (no hierarchy), unreliable coordinate mapping (iOS cursor acceleration), grid layout navigation broken, overlay/dialog mismatch, screenshot blackout from AccessibilityAudit connection, required Python runtime + Bluetooth adapter. WDA (Phase 3.0) solves all of these with a single HTTP API.
 
-```bash
-./scripts/ios-tunnel.sh              # USB tunnel + BLE HID
-./scripts/ios-tunnel.sh --wifi       # WiFi tunnel + BLE HID (cable-free)
-./scripts/ios-tunnel.sh --no-ble     # tunnel only, no BLE
-./scripts/ios-tunnel.sh setup        # first-time setup (dev mode + WiFi pair)
-./scripts/ios-tunnel.sh stop         # tear down
+### Phase 2.96: iOS — Open Items (mostly RESOLVED by WDA)
+
+| Item | Status | Resolution |
+|------|--------|------------|
+| **Screenshot blackout** | RESOLVED | WDA `/screenshot` doesn't interfere with app rendering |
+| **Grid layout navigation** | RESOLVED | WDA clicks elements by ID — no FKA counting, works on any layout |
+| **Overlay/dialog mismatch** | RESOLVED | WDA finds elements in the current context, not behind overlays |
+| **Back navigation** | RESOLVED | WDA finds back button by predicate, or swipe-from-left-edge fallback |
+| **WiFi tunnel** | WONTFIX | WiFi tunnel requires Xcode "Connect via network" handshake for remote pairing. Device advertises `_apple-mobdev2._tcp` but WiFi lockdown returns `GetProhibited`. Not possible on Linux. iOS = QA only (USB required). |
+
+### Phase 3.0: iOS — WDA rewrite (DONE)
+
+Complete rewrite of `src/ios.js` — replaced BLE HID + pymobiledevice3 runtime with WebDriverAgent (WDA) over HTTP. **Zero Python dependency at runtime.** Setup still uses pymobiledevice3 (tunnel + WDA launch), but the JS module is pure `fetch()`.
+
+**Architecture:**
 ```
+Node.js (src/ios.js)  →  fetch()  →  WDA (WiFi or USB proxy)  →  iPhone
+                                         ↑
+                              ios/setup.sh starts:
+                              1. USB tunnel (pymobiledevice3)
+                              2. DDI mount (developer disk image)
+                              3. WDA launch (XCUITestService.run())
+                              connect() auto-discovers via:
+                              1. Cached WiFi → direct HTTP
+                              2. USB → usbmux.js proxy → get WiFi IP
+                              3. Fallback → localhost:8100
+```
+
+**What WDA gives us over BLE HID:**
+- Real accessibility tree via `/source` XML (not `iter_elements()` flat list)
+- Native element click by element ID (not BLE keyboard Tab+Down+Space)
+- Type via WDA value injection (not BLE keyboard strings)
+- Screenshot via WDA `/screenshot` (not pymobiledevice3 dvt — no blackout)
+- Works on any UI layout — grids, lists, dialogs, overlays
+- No Bluetooth adapter required, no Python at runtime
+
+**API surface:** Same page-object pattern as Android.
 
 ```js
 import { connect } from 'baremobile/src/ios.js';
 
 const page = await connect();
-const png = await page.screenshot();             // pymobiledevice3
+const snap = await page.snapshot();     // WDA /source → translateWda → prune → YAML
+await page.tap(1);                      // coordinate tap via bounds center
+await page.type(2, 'hello');            // coordinate tap to focus → WDA keys
+await page.scroll(0, 'down');           // coordinate-based swipe within bounds
+await page.swipe(0, 400, 250, 400);    // raw swipe (e.g. back gesture)
 await page.launch('com.apple.Preferences');
-await page.tapXY(200, 400);                     // BLE HID mouse
-await page.type('hello');                        // BLE HID keyboard
+await page.back();                      // find back button in refMap or swipe-from-left
+await page.home();                      // WDA /wda/homescreen
+await page.screenshot();                // WDA /screenshot → PNG buffer
+await page.waitForText('Wi-Fi', 5000);  // poll snapshot until text appears
+await page.longPress(3);               // W3C pointer action at bounds center
 page.close();
 ```
 
-**API surface:** `connect()` → page object with `screenshot()`, `launch(bundleId)`, `kill(pid)`, `tapXY(x, y)`, `type(text)`, `press(key)`, `swipe()`, `back()`, `home()`, `longPressXY()`, `close()`.
-
-### Phase 2.95: iOS — Cable-Free (WiFi + Accessibility Snapshot) (DONE)
-
-Cable-free iOS automation: WiFi tunnel replaces USB, accessibility tree replaces screenshot-only navigation.
-
-**Key discoveries:**
-- pymobiledevice3 `AccessibilityAudit.iter_elements()` returns every UI element (labels, roles, states)
-- **Full Keyboard Access + BLE HID keyboard = reliable `tap(ref)`** — Tab enters list group, Down×N navigates to element, Space activates. No mouse coordinates, no VoiceOver needed.
-- `move_focus(direction)` moves inspector focus only (not real VoiceOver focus) — can't activate elements
-- `perform_press()` silently fails (requires Xcode-only `task_for_pid-allow` entitlement)
-- BLE mouse coordinate mapping is unreliable due to iOS cursor acceleration
-- WiFi tunnel fully supported: `remote start-tunnel --connection-type wifi`
-
-**Cable-free stack:** WiFi (pymobiledevice3 tunnel) + Bluetooth (BLE HID keyboard).
-
-```js
-const page = await connect();
-const snap = await page.snapshot();      // accessibility tree as YAML
-// - Header [ref=0] "Settings"
-// - Button [ref=1] "Amr Hassan" (Apple Account)
-// - Button [ref=4] "Wi-Fi" (vanCampers)
-
-await page.tap(4);                       // Tab + 3×Down + Space via BLE keyboard
-await page.waitForText('Wi-Fi', 10000);  // poll until text appears
+**Setup:**
+```bash
+# First-time: see ios/SETUP.md (one-time iPhone pairing + WDA signing)
+# Each session:
+./ios/setup.sh       # tunnel + DDI + WDA + port forward
+# When done:
+./ios/teardown.sh    # kill all bridge processes
 ```
 
-**New API:** `snapshot()`, `tap(ref)`, `waitForText(text, timeout)`, `moveCursor(dx, dy)`, `scroll(direction, amount)`.
+**Requirements:**
+- WDA signed and installed on device (free Apple ID, 7-day cert, re-sign weekly)
+- pymobiledevice3 (Python 3.12) for setup only — tunnel, DDI mount, WDA launch. Port forwarding replaced by usbmux.js.
+- USB cable (required — WiFi tunnel needs Mac/Xcode)
+- iPhone with Developer Mode enabled
+
+**POC results (smart-nav.js):** Settings navigation, scrolling, app launch, Airplane Mode toggle — all work. Same `snapshot()` → `tap(ref)` pattern as Android, backed by WDA HTTP instead of ADB.
+
+**Open items:**
+- WDA signing uses free Apple ID (7-day cert) — needs weekly re-sign via AltServer-Linux
+- WiFi tunnel WONTFIX on Linux — requires Xcode WiFi pairing. USB required.
+- Setup automation (`ios/setup.sh`) handles the session, but first-time WDA installation is manual
+
+### Phase 3.1: iOS — Translation layer + coordinate tap (DONE)
+
+Replaced flat snapshot + predicate-based tap with shared Android pipeline. `translateWda()` converts WDA `/source` XML into Android node shape, then `prune()` + `formatTree()` produce identical hierarchical YAML.
 
 **Architecture:**
 ```
-scripts/ios-ax.py --rsd HOST PORT dump    → JSON array of elements
+Android:  ADB XML  →  parseXml()      →  node tree  →  prune()  →  formatTree()  →  YAML
+iOS:      WDA XML  →  translateWda()   →  node tree  →  prune()  →  formatTree()  →  YAML
 ```
 
-`snapshot()` calls ios-ax.py dump → parses JSON → formats YAML with `[ref=N]` markers (same pattern as Android).
-`tap(ref)` uses Full Keyboard Access: Escape (reset) → Tab (enter list) → Down×(ref-1) (navigate) → Space (activate). Sent via BLE HID keyboard — no mouse, no VoiceOver.
+**What changed:**
+- `translateWda(xml)` — recursive XML parser, maps WDA attributes to Android node shape (class, text, contentDesc, bounds, clickable, scrollable, editable, enabled, checked, selected, focused, children)
+- `snapshot()` — now pipes through `prune()` + `formatTree()` for hierarchical indented YAML (was flat list)
+- `tap(ref)` — coordinate tap via `boundsCenter(refMap.get(ref).bounds)` → W3C pointer action (was predicate lookup → element ID → click)
+- `scroll(ref, dir)` — coordinate-based swipe within bounds (was element-based WDA scroll)
+- `longPress(ref)` — W3C pointer action at bounds center (was element-based touchAndHold)
+- `type(ref, text)` — coordinate tap to focus → WDA keys endpoint (was element find → element value)
+- `back()` — searches refMap for back button, falls back to swipe (was predicate search)
+- `CLASS_MAP` in `aria.js` — 21 iOS `XCUIElementType*` entries for `shortClass()` mapping
+- Dead code removed: `findElement`, `findElements`, `clickElement`, `getAttr`, `getElementType`, `findByRef`, `parseSource`, `formatSnapshot`, `INCLUDE_TYPES`, `TYPE_NAMES`
 
-**Prerequisite:** Enable Full Keyboard Access on the iPhone: Settings > Accessibility > Keyboards > Full Keyboard Access → ON.
+**Why:** Predicate-based tap was slow (round-trip to WDA per tap), broke on duplicate labels, and produced flat output missing hierarchy. Coordinate tap is instant (no WDA element search), reliable (bounds from XML), and produces same YAML format as Android.
 
-**Key difference from Android:** iOS snapshot is flat (no tree hierarchy) because `iter_elements()` returns a sequential walk. Still has `[ref=N]` markers, labels, roles — agents use the same read→pick→act pattern.
+### Phase 3.2: iOS — usbmux.js + auto-connect (DONE)
 
-### Phase 2.96: iOS — Open Items
+Replaced pymobiledevice3 port forwarder with Node.js usbmuxd client (`src/usbmux.js`). The pymobiledevice3 forwarder crashed regularly with `ValueError: list.remove(x)` socket cleanup race condition. Node.js proxy handles 10/10 concurrent requests in 41ms, zero crashes.
 
-Known issues to resolve before iOS is production-ready:
+**Auto-discovery in connect():**
+1. Cached WiFi — reads /tmp/baremobile-ios-wifi, tries direct HTTP
+2. USB discovery — Node.js proxy via usbmuxd, gets WiFi IP from /status, caches it
+3. Fallback — localhost:8100
 
-| Item | Status | Description |
-|------|--------|-------------|
-| **Screenshot blackout** | OPEN | `snapshot()` (AccessibilityAudit connection) causes the current app to render black. Screenshots taken after snapshot show a black screen. Workaround: small cursor nudge after snapshot, or take screenshot before snapshot. Root cause: pymobiledevice3 AccessibilityAudit interferes with app rendering. |
-| **WiFi tunnel** | OPEN | `remote start-tunnel --connection-type wifi` fails with "Device is not connected". Needs `remote pair` (one-time USB) and phone must be unlocked on same network. USB tunnel works reliably. |
-| **Grid layout navigation** | OPEN | `tap(ref)` uses Tab+Down+Space which only works for list-based UIs. Grid layouts (Calculator, home screen app grid) need arrow key grid navigation (Up/Down/Left/Right). Need to detect layout type from tree structure and use appropriate navigation. |
-| **Overlay/dialog mismatch** | OPEN | `iter_elements()` can read UI behind dialogs/overlays, causing ref mismatch between tree and actual keyboard focus. Need overlay detection or focus state verification. |
-| **Back navigation** | OPEN | No reliable "go back" — Escape navigates back but also exits apps. Need Cmd+H (home) and reliable back gesture via BLE. |
+**unlock() improvements:**
+- Detects passcode-required state, throws if no passcode provided
+- Verifies unlock succeeded, throws on wrong passcode
+- connect({passcode: '1234'}) for automated flows
 
-### Phase 2.10: iOS — QA module
+**WiFi tunnel investigation (WONTFIX on Linux):**
+- WiFi HTTP traffic to WDA works perfectly (proven)
+- WDA process depends on USB tunnel (RemoteXPC) — dies when USB unplugged
+- WiFi tunnel requires remote pairing, which requires Xcode "Connect via network" handshake
+- Device advertises _apple-mobdev2._tcp but WiFi lockdown returns GetProhibited
+- Conclusion: iOS = QA tool (USB required). Personal assistant = Android only.
 
-Full QA automation loop for iOS using accessibility snapshots + Full Keyboard Access:
+### Phase 3.3: iOS — CLI + MCP integration (DONE)
 
-| Feature | How | Status |
-|---------|-----|--------|
-| UI navigation (lists) | `snapshot()` → find element → `tap(ref)` via Tab+Down+Space | **WORKING** |
-| UI navigation (grids) | `snapshot()` → calculate grid position → arrow keys | TODO |
-| Text input | `type(text)` via BLE HID keyboard | **WORKING** |
-| Visual verification | `screenshot()` + vision model for pixel-level checks | **WORKING** |
-| Cross-platform suites | Same `snapshot()` → `tap(ref)` pattern on both Android and iOS | **WORKING** (lists) |
-| Wait for state | `waitForText('Success', 5000)` polls accessibility tree | **WORKING** |
-| Vision fallback | `tapXY(x, y)` via BLE mouse when accessibility tree isn't enough | Available but imprecise |
+Wired iOS into CLI and MCP server. One MCP server handles both platforms, interactive setup wizard, cert expiry tracking.
 
-**Prerequisite:** Full Keyboard Access must be enabled on iPhone (Settings > Accessibility > Keyboards > Full Keyboard Access → ON).
+**MCP dual-platform:** `mcp-server.js` holds two page slots (`_pages.android` and `_pages.ios`), lazy-created on first use. Every tool accepts optional `platform: "ios"` param (default: android). Dynamic import selects `src/ios.js` or `src/index.js`. iOS cert warning prepended to first snapshot if WDA cert is >6 days old.
 
-**Constraint:** iPhone must be USB-connected (WiFi tunnel not yet reliable) and unlocked. The tunnel script manages the connection.
+**CLI platform flag:** `--platform=ios` on `baremobile open` starts iOS daemon. Platform passed through to daemon via child args, stored in `session.json`. Android-only commands (`logcat`, `intent`, `tap-grid`, `grid`) return error on iOS.
+
+**Setup wizard:** `baremobile setup` — interactive, detects what's done, guides through remaining steps. Android: check ADB + device. iOS: check pymobiledevice3, USB device, developer mode, WDA, tunnel, verify connection.
+
+**Cert tracking:** `baremobile ios resign` — interactive AltServer signing with Apple ID prompts + 2FA. Writes timestamp to `/tmp/baremobile-ios-signed`. `src/ios-cert.js` checks file age — warns at >6 days (7-day free cert expiry).
+
+**New commands:**
+- `baremobile setup` — interactive setup wizard
+- `baremobile ios resign` — re-sign WDA cert
+- `baremobile ios teardown` — kill tunnel/WDA processes
+
+**Files changed:** `mcp-server.js`, `src/daemon.js`, `cli.js`, `src/ios-cert.js` (new).
 
 ### Phase 3: MCP server (DONE)
-`mcp-server.js` — JSON-RPC 2.0 over stdio, same pattern as barebrowse. 10 screen-control tools, no SDK dependency.
+`mcp-server.js` — JSON-RPC 2.0 over stdio, same pattern as barebrowse. 10 screen-control tools, no SDK dependency. Dual-platform: Android (default) + iOS via `platform` param.
 
-**Tools:** snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back.
+**Tools:** snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back. All accept optional `platform: "android" | "ios"`.
 
-**Session:** Singleton lazy — `connect()` on first tool call, auto-detect ADB device.
+**Session:** Per-platform lazy pages — `connect()` on first tool call per platform. Android auto-detects ADB device, iOS auto-discovers WDA.
 
 **Convention:** Action tools return `'ok'`, agent calls `snapshot` explicitly to observe. Screenshot returns MCP `image` content type (base64 PNG). Large snapshots (>30K chars) saved to `.baremobile/screen-{timestamp}.yml`.
 
@@ -853,6 +913,7 @@ Native parts: uiautomator tree (baremobile). WebView parts: CDP ARIA tree (bareb
 | dump-to-file + cat | `uiautomator dump /dev/tty` doesn't work on API 35+. Dump to temp file, cat it back via `exec-out`. |
 | `exec-out` not `shell` | `adb shell` mangles `\r\n` line endings. `exec-out` gives raw binary-safe stdout. |
 | Page object pattern | Same API shape as barebrowse's `connect()`. Agents learn one pattern, use it everywhere. |
+| WDA over BLE HID for iOS | WDA gives real element tree + native click — no Bluetooth adapter, no Python at runtime, no coordinate guessing. BLE HID had flat tree, unreliable mouse, grid navigation broken, screenshot blackout. WDA is strictly superior. |
 
 ## Future Features Needed
 
@@ -876,73 +937,41 @@ Native parts: uiautomator tree (baremobile). WebView parts: CDP ARIA tree (bareb
 
 **Transitional disabled states** — System settings toggles go through a `[disabled]` state during async operations (observed: Bluetooth enabling). Agents should snapshot again after 1-2s when they see `[disabled]` on a toggle they just tapped. Document this pattern.
 
-### iOS Support — In Progress (Spike Phase)
+### iOS Support — WDA-based (Phase 3.0–3.2 DONE, QA only)
 
-> See [00-context/ios-exploration.md](../00-context/ios-exploration.md) for full research, spike results, and architecture options.
+iOS control uses WebDriverAgent (WDA) running on the device. Same `snapshot()` → `tap(ref)` pattern as Android. Translation layer (`translateWda()`) converts WDA XML into Android node shape, then shared `prune()` + `formatTree()` pipeline produces identical hierarchical YAML.
 
-#### The challenge
-
-Android gives you ADB — a debug bridge baked into the OS. iOS has no equivalent. The accessibility tree is there (VoiceOver uses it), but Apple gates access behind Xcode + WDA sideloading + certificate management.
-
-#### Our approach: Architecture C (no Mac, no Xcode, no app install)
-
-Instead of fighting Apple's WDA path, we bypass it entirely:
+#### Architecture
 
 ```
-Linux machine → pymobiledevice3 → USB → iPhone (screenshots, app lifecycle)
-Linux machine → BlueZ BLE HID → Bluetooth → iPhone (keyboard/mouse input)
+WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
+                                                          (shared with Android)
 ```
 
-**Output channel (PROVEN):** pymobiledevice3 over USB — screenshots, app launch/kill, process list, device info. All from Linux, no Mac, no signing, no app on the phone.
+Setup (pymobiledevice3, Python 3.12) starts the tunnel + mounts DDI + launches WDA. Port forwarding handled by `src/usbmux.js` (Node.js usbmuxd client, replaces flaky pymobiledevice3 forwarder). `connect()` auto-discovers WDA via cached WiFi > USB proxy > localhost. Once running, `src/ios.js` is pure `fetch()` — zero Python at runtime. Actions use coordinate taps from node bounds (no predicate lookups). iOS is QA/testing only — USB cable required (WiFi tunnel needs Mac/Xcode).
 
-**Input channel (PROVEN — keyboard + mouse):** Linux presents as a BLE HID keyboard+mouse combo to iOS via BlueZ. Keyboard types into any text field, mouse taps at coordinates via AssistiveTouch. Integration test: screenshot → BLE tap → screenshot → BLE type → verify. 6/6 passing.
+#### What you need
 
-Key requirements discovered:
-- `ControllerMode = le` in `/etc/bluetooth/main.conf` — LE-only, prevents Classic BT duplicate
-- `KeyboardDisplay` pairing agent — authenticated encryption (MITM protection required for HID)
-- `secure-read` on Report Map + Report Reference descriptors
-- LED Output Report in Report Map — iOS writes Caps Lock status
-- System Python 3.14 for dbus-python/PyGObject (not 3.12)
+- iPhone with Developer Mode enabled
+- WDA signed and installed (free Apple ID, 7-day cert)
+- pymobiledevice3 (Python 3.12) — setup only
+- USB cable (required — WiFi tunnel needs Mac/Xcode)
 
-#### POC results (pymobiledevice3 spike)
+#### What you DON'T need
 
-| Capability | Status | Performance |
-|-----------|--------|-------------|
-| Device detection | Working | Instant |
-| Screenshot | Working | **2.5s avg** (includes CLI overhead) |
-| App launch | Working | ~4s |
-| App kill | Working | ~4s |
-| Process list | Working | ~26s (1 MB output) |
-| Device info | Working | ~2s |
-| WiFi tunnel | **Working** | Same as USB — after `remote pair` setup |
-| Accessibility dump | **Working** | `iter_elements()` returns all UI elements |
-| Focus navigation | **Working** | Full Keyboard Access: Tab+Down+Space activates any element by ref |
-
-#### Constraints
-
-- **One-time USB required** — initial pairing and `remote pair` for WiFi access, then cable-free
-- **Phone must be unlocked** for developer image mount + screenshots
-- **One-time setup needs hands on phone** — trust prompt, Developer Mode toggle, restart
-- **Tunnel process needs sudo** — creates TUN interface for developer services
-- **Python 3.12 required** — pymobiledevice3 dependency, 3.14 has build failures
-- **Accessibility tree is flat** — `iter_elements()` returns sequential elements, not a hierarchy. Still has labels, roles, values.
-
-#### What you DON'T need (vs WDA/Appium path)
-
-- No Mac
-- No Xcode (25 GB)
-- No Apple Developer account ($99/yr)
-- No app installed on the phone
-- No code signing or 7-day re-signing
-- No jailbreak
+- No Mac, no Xcode
+- No Bluetooth adapter
+- No Python at runtime
+- No BLE pairing, no AssistiveTouch, no Full Keyboard Access
 
 #### Current setup
 
 ```bash
-./scripts/ios-tunnel.sh setup    # first-time: reveal dev mode, enable WiFi
-./scripts/ios-tunnel.sh          # start bridge: usbmuxd + tunnel + dev image
-npm run ios:check                # validate prerequisites
-npm run test:ios                 # 8 tests, all passing
+# First-time: see ios/SETUP.md
+# Each session:
+./ios/setup.sh       # tunnel + DDI + WDA + port forward
+# When done:
+./ios/teardown.sh    # kill all bridge processes
 ```
 
 ## References

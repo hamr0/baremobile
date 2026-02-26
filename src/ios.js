@@ -1,309 +1,455 @@
-// iOS device control via pymobiledevice3 (screenshots, app lifecycle)
-// and BLE HID (tap, type, swipe — keyboard + mouse over Bluetooth).
+// iOS device control via WebDriverAgent (WDA).
+// Same page-object API as Android — snapshot, tap, type, swipe, scroll, etc.
+//
+// Connection modes (auto-detected):
+//   1. WiFi direct — http://<device-ip>:8100 (fastest, cable-free)
+//   2. USB via usbmux — Node.js proxy to /var/run/usbmuxd (no pymobiledevice3)
+//   3. Manual — connect({host: 'x.x.x.x'}) or pre-forwarded localhost:8100
+//
+// Translation layer: WDA XML → Android node shape → shared prune pipeline.
+// Same architecture as Android: translateWda() replaces parseXml(),
+// then prune() + formatTree() produce identical YAML output.
 
-import { execFile, spawn } from 'node:child_process';
-import { promisify } from 'node:util';
-import { readFile } from 'node:fs/promises';
+import fs from 'node:fs/promises';
+import { prune } from './prune.js';
+import { formatTree } from './aria.js';
+import { listDevices, forward } from './usbmux.js';
 
-const execP = promisify(execFile);
+const WIFI_CACHE = '/tmp/baremobile-ios-wifi';
 
-const PMD3_PYTHON = 'python3.12';
-const BLE_PYTHON = 'python3';
-const RSD_FILE = '/tmp/ios-rsd-address';
-const POC_SCRIPT = new URL('../test/ios/ble-hid-poc.py', import.meta.url).pathname;
-const AX_SCRIPT = new URL('../scripts/ios-ax.py', import.meta.url).pathname;
+// --- WDA HTTP helpers (instance-scoped via closure) ---
 
-// --- RSD tunnel resolution ---
-
-/**
- * Discover RSD tunnel address. Checks (in order):
- * 1. RSD_ADDRESS env var: "host port"
- * 2. /tmp/ios-rsd-address file (written by ios-tunnel.sh)
- * 3. pymobiledevice3 remote browse (tunneld auto-discovery)
- */
-async function resolveRsd(pythonBin = PMD3_PYTHON) {
-  // 1. Env var
-  if (process.env.RSD_ADDRESS) {
-    const parts = process.env.RSD_ADDRESS.trim().split(/\s+/);
-    if (parts.length === 2) return ['--rsd', parts[0], parts[1]];
-  }
-  // 2. RSD file from ios-tunnel.sh
-  try {
-    const content = (await readFile(RSD_FILE, 'utf8')).trim();
-    const parts = content.split(/\s+/);
-    if (parts.length === 2) return ['--rsd', parts[0], parts[1]];
-  } catch { /* file doesn't exist */ }
-  // 3. tunneld auto-discovery
-  try {
-    const result = await pmd3(pythonBin, [], 'remote', 'browse');
-    const tunnels = JSON.parse(result.stdout);
-    const devices = [...(tunnels.usb || []), ...(tunnels.wifi || [])];
-    if (devices.length > 0) {
-      const d = devices[0];
-      return ['--rsd', d.address, String(d.port)];
-    }
-  } catch { /* no tunneld running */ }
-  return [];
-}
-
-// --- pymobiledevice3 command runner ---
-
-async function pmd3(pythonBin, rsdArgs, ...args) {
-  return execP(pythonBin, ['-m', 'pymobiledevice3', ...args, ...rsdArgs], {
-    timeout: 30_000,
-    maxBuffer: 50 * 1024 * 1024,
-  });
-}
-
-// --- Screenshot ---
-
-async function takeScreenshot(pythonBin, rsdArgs) {
-  const { tmpdir } = await import('node:os');
-  const { join } = await import('node:path');
-  const { readFile: readF, unlink } = await import('node:fs/promises');
-
-  const outPath = join(tmpdir(), `ios-screenshot-${Date.now()}.png`);
-  await execP(pythonBin, [
-    '-m', 'pymobiledevice3', 'developer', 'dvt', 'screenshot', outPath, ...rsdArgs,
-  ], { timeout: 30_000 });
-  const buf = await readF(outPath);
-  await unlink(outPath).catch(() => {});
-  return buf;
-}
-
-// --- Accessibility snapshot ---
-
-// iPhone screen layout constants (points, 3x Retina)
-const SCREEN_W = 375;     // logical width in points
-const SCREEN_H = 812;     // logical height in points
-
-// BLE mouse coordinate calibration (iPhone 13 mini, Settings)
-// BLE mouse units ≠ screen points — cursor acceleration means ~3-4x scaling.
-// Calibrated by probing: ref=1 ~200, ref=3 ~500, ref=5 ~600, ref=8 ~800.
-// Regular rows (ref>=3): Y = 500 + (ref - 3) * 50
-const BLE_ROW_START = 500;  // BLE Y for first regular row (ref=3 in Settings)
-const BLE_ROW_H = 50;       // BLE Y units per row
-const BLE_X_CENTER = 187;   // center X in BLE coords
-
-/**
- * Estimate BLE mouse tap coordinates for an element by ref index.
- * Calibrated for list layouts (Settings, etc.).
- * @param {number} ref — element index from snapshot
- * @param {number} total — total element count (unused for now)
- * @returns {{x: number, y: number}}
- */
-export function estimateTapTarget(ref, total) {
-  if (ref === 0) return { x: BLE_X_CENTER, y: 80 };
-  if (ref === 1) return { x: BLE_X_CENTER, y: 200 };
-  if (ref === 2) return { x: BLE_X_CENTER, y: 320 };
-  // Regular rows from ref=3 onward
-  const y = BLE_ROW_START + (ref - 3) * BLE_ROW_H;
-  return { x: BLE_X_CENTER, y };
-}
-
-/**
- * Format parsed accessibility elements as YAML with [ref=N] markers.
- * Matches the Android snapshot format from aria.js.
- * @param {Array<object>} elements — parsed from ios-ax.py dump
- * @returns {string}
- */
-export function formatSnapshot(elements) {
-  const lines = [];
-  for (const el of elements) {
-    let line = `- ${el.role || 'View'}`;
-    line += ` [ref=${el.ref}]`;
-    if (el.label) line += ` "${el.label}"`;
-    if (el.value) line += ` (${el.value})`;
-    if (el.traits && el.traits.length) line += ` [${el.traits.join(', ')}]`;
-    lines.push(line);
-  }
-  return lines.join('\n');
-}
-
-async function axDump(pythonBin, rsdArgs) {
-  const host = rsdArgs[1];
-  const port = rsdArgs[2];
-  const { stdout } = await execP(pythonBin, [AX_SCRIPT, '--rsd', host, port, 'dump'], {
-    timeout: 30_000,
-    maxBuffer: 10 * 1024 * 1024,
-  });
-  return JSON.parse(stdout);
-}
-
-// --- BLE HID Daemon ---
-
-class BleHidDaemon {
-  constructor() {
-    this.proc = null;
-    this.ready = false;
-    this.kbReady = false;
-    this.mouseReady = false;
-  }
-
-  async start() {
-    const isRoot = process.getuid?.() === 0;
-    const cmd = isRoot ? BLE_PYTHON : 'pkexec';
-    const args = isRoot ? [POC_SCRIPT] : ['env', 'PYTHONUNBUFFERED=1', BLE_PYTHON, POC_SCRIPT];
-
-    this.proc = spawn(cmd, args, {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: { ...process.env, PYTHONUNBUFFERED: '1' },
-    });
-
-    this.proc.stdout.on('data', (data) => {
-      const text = data.toString();
-      if (text.includes('notifications ON')) {
-        if (text.includes('KB')) this.kbReady = true;
-        if (text.includes('MOUSE')) this.mouseReady = true;
+function createWda(baseUrl) {
+  async function wdaFetch(path, init) {
+    const url = `${baseUrl}${path}`;
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        const res = await fetch(url, init);
+        return res.json();
+      } catch (e) {
+        if (attempt === 2) throw e;
+        await new Promise(r => setTimeout(r, 500));
       }
-      if (text.includes('Ready.')) this.ready = true;
-    });
-    this.proc.stderr.on('data', () => {});
-
-    // Wait for "Ready."
-    const start = Date.now();
-    while (!this.ready && Date.now() - start < 15_000) {
-      await new Promise(r => setTimeout(r, 200));
-    }
-    if (!this.ready) throw new Error('BLE HID daemon did not become ready');
-  }
-
-  async ensurePaired(timeout = 120_000) {
-    const start = Date.now();
-    while ((!this.kbReady || !this.mouseReady) && Date.now() - start < timeout) {
-      await new Promise(r => setTimeout(r, 500));
-    }
-    if (!this.kbReady || !this.mouseReady) {
-      throw new Error(`BLE HID not fully paired — KB: ${this.kbReady}, Mouse: ${this.mouseReady}`);
     }
   }
 
-  send(command) {
-    if (!this.proc) throw new Error('BLE HID daemon not started');
-    this.proc.stdin.write(command + '\n');
-  }
+  const wdaGet = (path) => wdaFetch(path);
+  const wdaPost = (path, body = {}) => wdaFetch(path, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
 
-  async sendAndWait(command, waitMs = 300) {
-    this.send(command);
-    await new Promise(r => setTimeout(r, waitMs));
-  }
-
-  async homeCursor() {
-    this.send('move -3000 -3000');
-    await new Promise(r => setTimeout(r, 3000));
-  }
-
-  async moveTo(x, y) {
-    this.send(`move ${x} ${y}`);
-    const maxDist = Math.max(Math.abs(x), Math.abs(y));
-    const steps = Math.ceil(maxDist / 10);
-    await new Promise(r => setTimeout(r, steps * 8 + 200));
-  }
-
-  async click() {
-    await this.sendAndWait('click', 200);
-  }
-
-  async moveBy(dx, dy) {
-    this.send(`move ${dx} ${dy}`);
-    const maxDist = Math.max(Math.abs(dx), Math.abs(dy));
-    const steps = Math.ceil(maxDist / 10);
-    await new Promise(r => setTimeout(r, steps * 8 + 200));
-  }
-
-  async scroll(amount) {
-    this.send(`scroll ${amount}`);
-    await new Promise(r => setTimeout(r, Math.abs(amount) * 50 + 200));
-  }
-
-  async tapXY(x, y) {
-    await this.homeCursor();
-    await this.moveTo(x, y);
-    await this.click();
-  }
-
-  async type(text) {
-    this.send(`send_string ${text}`);
-    await new Promise(r => setTimeout(r, text.length * 200 + 500));
-  }
-
-  async pressKey(key) {
-    await this.sendAndWait(`send_key ${key}`, 300);
-  }
-
-  stop() {
-    if (!this.proc) return;
-    try {
-      this.send('quit');
-      const p = this.proc;
-      setTimeout(() => {
-        try { p.kill('SIGTERM'); } catch { /* already dead */ }
-      }, 2000);
-    } catch { /* already dead */ }
-    this.proc = null;
-  }
+  return { wdaGet, wdaPost };
 }
 
-// Lazy BLE singleton
-let _ble = null;
+/**
+ * Try WDA /status at a URL. Returns true if ready.
+ */
+async function wdaReady(baseUrl, timeoutMs = 2000) {
+  try {
+    const res = await fetch(`${baseUrl}/status`, { signal: AbortSignal.timeout(timeoutMs) });
+    const s = await res.json();
+    return !!s.value?.ready;
+  } catch { return false; }
+}
 
-async function ensureBle() {
-  if (_ble) return _ble;
-  _ble = new BleHidDaemon();
-  await _ble.start();
-  await _ble.ensurePaired(120_000);
-  return _ble;
+/**
+ * Resolve WDA base URL. Priority: explicit host > WiFi (cached) > USB > localhost.
+ * Returns { baseUrl, cleanup } where cleanup closes any forwarder.
+ */
+async function resolveWda(opts) {
+  // 1. Explicit host
+  if (opts.host) {
+    const port = opts.port || 8100;
+    return { baseUrl: `http://${opts.host}:${port}`, cleanup: () => {} };
+  }
+
+  // 2. Try cached WiFi IP — works even without USB
+  try {
+    const cachedIp = (await fs.readFile(WIFI_CACHE, 'utf8')).trim();
+    if (cachedIp) {
+      const wifiBase = `http://${cachedIp}:8100`;
+      if (await wdaReady(wifiBase)) return { baseUrl: wifiBase, cleanup: () => {} };
+    }
+  } catch { /* no cache or stale */ }
+
+  // 3. USB discovery — find device, get WiFi IP, cache it
+  try {
+    const devices = await listDevices();
+    if (devices.length > 0) {
+      const dev = devices[0];
+      const server = await forward(dev.deviceId, 8100, 0);
+      const localPort = server.address().port;
+      const tmpBase = `http://localhost:${localPort}`;
+
+      try {
+        const res = await fetch(`${tmpBase}/status`, { signal: AbortSignal.timeout(3000) });
+        const status = await res.json();
+        const wifiIp = status.value?.ios?.ip;
+
+        if (wifiIp) {
+          const wifiBase = `http://${wifiIp}:8100`;
+          if (await wdaReady(wifiBase)) {
+            server.close();
+            await fs.writeFile(WIFI_CACHE, wifiIp).catch(() => {});
+            return { baseUrl: wifiBase, cleanup: () => {} };
+          }
+        }
+
+        // WiFi not reachable — keep USB forwarder
+        return { baseUrl: tmpBase, cleanup: () => server.close() };
+      } catch {
+        server.close();
+      }
+    }
+  } catch { /* usbmuxd not available */ }
+
+  // 4. Fallback: assume pre-forwarded localhost:8100
+  return { baseUrl: `http://localhost:${opts.port || 8100}`, cleanup: () => {} };
+}
+
+// --- WDA XML → Android node shape ---
+
+const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" };
+const ENTITY_RE = /&(?:amp|lt|gt|quot|apos);/g;
+function decodeEntities(s) { return s ? s.replace(ENTITY_RE, m => ENTITIES[m]) : s; }
+
+const CLICKABLE_TYPES = new Set([
+  'XCUIElementTypeButton', 'XCUIElementTypeCell', 'XCUIElementTypeLink',
+  'XCUIElementTypeTab', 'XCUIElementTypeKey', 'XCUIElementTypeIcon',
+]);
+
+const EDITABLE_TYPES = new Set([
+  'XCUIElementTypeTextField', 'XCUIElementTypeSecureTextField',
+  'XCUIElementTypeSearchField', 'XCUIElementTypeTextView',
+]);
+
+const SCROLLABLE_TYPES = new Set([
+  'XCUIElementTypeScrollView', 'XCUIElementTypeTable',
+  'XCUIElementTypeCollectionView',
+]);
+
+/**
+ * Translate WDA /source XML into Android-shaped node tree.
+ * Output is identical to parseXml() from xml.js — same fields, same shape.
+ * Feeds directly into prune() + formatTree() for shared pipeline.
+ *
+ * @param {string} xml — WDA /source XML string
+ * @returns {object | null} root node (same shape as parseXml output)
+ */
+export function translateWda(xml) {
+  if (!xml || typeof xml !== 'string') return null;
+
+  const nodes = [];
+  const stack = [];
+  // Match opening tags (self-closing or not) and closing tags
+  const tagRe = /<(XCUIElementType\w+)\s([^>]*?)\/?>|<\/(XCUIElementType\w+)>/g;
+  let match;
+
+  while ((match = tagRe.exec(xml)) !== null) {
+    // Closing tag
+    if (match[3]) {
+      stack.pop();
+      continue;
+    }
+
+    const type = match[1];
+    const attrStr = match[2];
+
+    // Parse attributes
+    const attrs = {};
+    const attrRe = /(\w[\w-]*)="([^"]*)"/g;
+    let am;
+    while ((am = attrRe.exec(attrStr)) !== null) {
+      attrs[am[1]] = am[2];
+    }
+
+    // Skip StatusBar entirely — noise for agents
+    if (type === 'XCUIElementTypeStatusBar') {
+      // Skip until matching close tag (or self-closing)
+      if (!match[0].endsWith('/>')) {
+        let depth = 1;
+        while (depth > 0 && (match = tagRe.exec(xml)) !== null) {
+          if (match[3]) depth--;
+          else if (!match[0].endsWith('/>')) depth++;
+        }
+      }
+      continue;
+    }
+
+    // Skip invisible leaf nodes (self-closing).
+    // Invisible containers still need their children processed —
+    // iOS marks CollectionView/Table as visible="false" while children are visible.
+    const invisible = attrs.visible === 'false';
+    if (invisible && match[0].endsWith('/>')) {
+      continue; // self-closing invisible — safe to skip entirely
+    }
+
+    // Build bounds from x, y, width, height
+    const x = parseInt(attrs.x, 10) || 0;
+    const y = parseInt(attrs.y, 10) || 0;
+    const w = parseInt(attrs.width, 10) || 0;
+    const h = parseInt(attrs.height, 10) || 0;
+    const bounds = (w > 0 && h > 0) ? { x1: x, y1: y, x2: x + w, y2: y + h } : null;
+
+    // Map WDA attributes to Android node shape
+    const label = decodeEntities(attrs.label || '');
+    const name = decodeEntities(attrs.name || '');
+    const value = decodeEntities(attrs.value || '');
+
+    const isSwitch = type === 'XCUIElementTypeSwitch' || type === 'XCUIElementTypeToggle';
+
+    // Invisible containers: create node for nesting but strip interactive/text
+    // so prune() collapses them as empty wrappers
+    const node = {
+      class: type,
+      text: invisible ? '' : (label || ''),
+      contentDesc: invisible ? '' : ((!label && name) ? name : ''),
+      bounds: invisible ? null : bounds,
+      clickable: invisible ? false : CLICKABLE_TYPES.has(type),
+      scrollable: invisible ? false : SCROLLABLE_TYPES.has(type),
+      editable: invisible ? false : EDITABLE_TYPES.has(type),
+      enabled: attrs.enabled !== 'false',
+      checked: invisible ? false : (isSwitch ? value === '1' : false),
+      selected: invisible ? false : (attrs.selected === 'true'),
+      focused: invisible ? false : (attrs.focused === 'true'),
+      children: [],
+    };
+
+    // Switches/toggles are clickable too
+    if (!invisible && isSwitch) node.clickable = true;
+
+    // Attach to parent
+    if (stack.length > 0) {
+      const parent = stack[stack.length - 1];
+      if (parent) parent.children.push(node);
+    }
+
+    nodes.push(node);
+
+    // Self-closing tags don't push to stack
+    if (!match[0].endsWith('/>')) {
+      stack.push(node);
+    }
+  }
+
+  return nodes.length > 0 ? nodes[0] : null;
+}
+
+// --- Coordinate helpers ---
+
+function boundsCenter(bounds) {
+  if (!bounds) throw new Error('Node has no bounds');
+  return {
+    x: Math.round((bounds.x1 + bounds.x2) / 2),
+    y: Math.round((bounds.y1 + bounds.y2) / 2),
+  };
+}
+
+// --- Navigation helpers ---
+
+/**
+ * Find the back button: first Button child of a NavigationBar.
+ * iOS back buttons show the previous screen name, not "Back",
+ * so we locate by structure rather than text.
+ */
+function findNavBack(root) {
+  if (!root) return null;
+  function walk(node) {
+    if (node.class === 'XCUIElementTypeNavigationBar') {
+      // First button in navbar with bounds is the back button
+      for (const child of node.children) {
+        if (child.class === 'XCUIElementTypeButton' && child.bounds) return child;
+      }
+    }
+    for (const child of node.children) {
+      const found = walk(child);
+      if (found) return found;
+    }
+    return null;
+  }
+  return walk(root);
 }
 
 // --- Public API ---
 
 /**
- * Connect to an iOS device and return a page object.
- * Requires ios-tunnel.sh running (or RSD_ADDRESS env var).
+ * Connect to an iOS device via WDA and return a page object.
+ * Auto-discovers device: WiFi direct > USB (usbmux) > localhost:8100.
  *
- * @param {{pythonBin?: string}} [opts]
+ * @param {{host?: string, port?: number, passcode?: string}} [opts]
  * @returns {Promise<object>} page
  */
 export async function connect(opts = {}) {
-  const pythonBin = opts.pythonBin || PMD3_PYTHON;
-  const rsdArgs = await resolveRsd(pythonBin);
-  if (!rsdArgs.length) {
-    throw new Error('No RSD tunnel — run: ./scripts/ios-tunnel.sh');
-  }
+  const passcode = opts.passcode || null;
+  const { baseUrl, cleanup } = await resolveWda(opts);
+  const { wdaGet, wdaPost } = createWda(baseUrl);
 
-  // Get device UDID
-  let serial = 'unknown';
-  try {
-    const result = await pmd3(pythonBin, [], 'usbmux', 'list');
-    const devices = JSON.parse(result.stdout);
-    if (devices.length > 0) serial = devices[0].Identifier;
-  } catch { /* couldn't get UDID */ }
+  const sessResult = await wdaPost('/session', { capabilities: {} });
+  const sid = sessResult.sessionId;
+  let _refMap = new Map();
+  let _navBackNode = null;
 
   const page = {
-    serial,
+    serial: 'ios',
     platform: 'ios',
+    baseUrl,
 
     async snapshot() {
-      const elements = await axDump(pythonBin, rsdArgs);
-      return formatSnapshot(elements);
+      const r = await wdaGet('/source');
+      const root = translateWda(r.value);
+      _navBackNode = findNavBack(root);
+      const { tree, refMap } = prune(root);
+      _refMap = refMap;
+      if (!tree) return '';
+      return formatTree(tree);
     },
 
     async tap(ref) {
-      const ble = await ensureBle();
-      // Full Keyboard Access: Tab enters first group, Down navigates within
-      // Reset focus to top: Shift+Tab ×5 to cycle back, then Tab to enter first group
-      for (let i = 0; i < 5; i++) {
-        await ble.sendAndWait('send_hid 0x02 0x2B', 100); // Shift+Tab
-      }
-      await ble.pressKey('tab');
+      const node = _refMap.get(ref);
+      if (!node) throw new Error(`tap(${ref}): no element with that ref`);
+      const { x, y } = boundsCenter(node.bounds);
+      await wdaPost(`/session/${sid}/wda/tap`, { x, y });
+    },
+
+    async type(ref, text, typeOpts = {}) {
+      const node = _refMap.get(ref);
+      if (!node) throw new Error(`type(${ref}): no element with that ref`);
+
+      // Coordinate tap to focus
+      const { x, y } = boundsCenter(node.bounds);
+      await wdaPost(`/session/${sid}/wda/tap`, { x, y });
       await new Promise(r => setTimeout(r, 300));
-      // Down arrow to reach the target (Tab lands on first interactive = ref 1)
-      for (let i = 1; i < ref; i++) {
-        await ble.pressKey('down');
-        await new Promise(r => setTimeout(r, 200));
+
+      // Clear if requested — find focused element and use WDA clear
+      if (typeOpts.clear) {
+        const focused = await wdaPost(`/session/${sid}/element`, {
+          using: 'predicate string',
+          value: 'focused == true',
+        });
+        const eid = focused.value?.ELEMENT;
+        if (eid) {
+          await wdaPost(`/session/${sid}/element/${eid}/clear`);
+          await new Promise(r => setTimeout(r, 200));
+        }
       }
-      await ble.pressKey('space');
+
+      // Type text via WDA keys endpoint
+      await wdaPost(`/session/${sid}/wda/keys`, { value: [...text] });
+    },
+
+    async press(key) {
+      const actions = {
+        home: () => wdaPost('/wda/homescreen'),
+        enter: () => wdaPost(`/session/${sid}/wda/keys`, { value: ['\n'] }),
+        volumeup: () => wdaPost('/wda/pressButton', { name: 'volumeUp' }),
+        volumedown: () => wdaPost('/wda/pressButton', { name: 'volumeDown' }),
+        volume_up: () => wdaPost('/wda/pressButton', { name: 'volumeUp' }),
+        volume_down: () => wdaPost('/wda/pressButton', { name: 'volumeDown' }),
+      };
+      if (actions[key]) return actions[key]();
+      throw new Error(`press("${key}"): not supported on iOS. Use tap(ref) instead.`);
+    },
+
+    async swipe(x1, y1, x2, y2, duration = 300) {
+      await wdaPost(`/session/${sid}/wda/dragfromtoforduration`, {
+        fromX: x1, fromY: y1,
+        toX: x2, toY: y2,
+        duration: duration / 1000,
+      });
+    },
+
+    async scroll(ref, direction) {
+      const node = _refMap.get(ref);
+      if (!node) throw new Error(`scroll(${ref}): no element with that ref`);
+      const { x, y } = boundsCenter(node.bounds);
+      const b = node.bounds;
+      const h = (b.y2 - b.y1) / 3;
+      const w = (b.x2 - b.x1) / 3;
+
+      const offsets = {
+        up: { x1: x, y1: y - h, x2: x, y2: y + h },
+        down: { x1: x, y1: y + h, x2: x, y2: y - h },
+        left: { x1: x - w, y1: y, x2: x + w, y2: y },
+        right: { x1: x + w, y1: y, x2: x - w, y2: y },
+      };
+      const o = offsets[direction];
+      if (!o) throw new Error(`scroll: unknown direction "${direction}"`);
+
+      await wdaPost(`/session/${sid}/wda/dragfromtoforduration`, {
+        fromX: o.x1, fromY: o.y1,
+        toX: o.x2, toY: o.y2,
+        duration: 0.3,
+      });
+    },
+
+    async longPress(ref) {
+      const node = _refMap.get(ref);
+      if (!node) throw new Error(`longPress(${ref}): no element with that ref`);
+      const { x, y } = boundsCenter(node.bounds);
+      await wdaPost(`/session/${sid}/wda/touchAndHold`, { x, y, duration: 1.0 });
+    },
+
+    async tapXY(x, y) {
+      await wdaPost(`/session/${sid}/wda/tap`, { x, y });
+    },
+
+    async back() {
+      // iOS back: find the first Button inside a NavigationBar in the raw tree.
+      // iOS back buttons show the previous screen name, not "Back",
+      // so we can't match by text. The first navbar button is always the back button.
+      if (_navBackNode) {
+        const { x, y } = boundsCenter(_navBackNode.bounds);
+        await wdaPost(`/session/${sid}/wda/tap`, { x, y });
+        return;
+      }
+      // Fallback: swipe from left edge (standard iOS back gesture)
+      await page.swipe(5, 400, 300, 400, 300);
+    },
+
+    async home() {
+      await wdaPost('/wda/homescreen');
+    },
+
+    async unlock(pin) {
+      const locked = await wdaGet('/wda/locked');
+      if (!locked.value) return;
+      await wdaPost('/wda/unlock');
       await new Promise(r => setTimeout(r, 500));
+
+      // Check if unlock succeeded (no passcode)
+      const still = await wdaGet('/wda/locked');
+      if (!still.value) return;
+
+      // Passcode required
+      const code = pin || passcode;
+      if (!code) throw new Error('Device requires passcode but none provided');
+      await wdaPost(`/session/${sid}/wda/keys`, { value: [...code] });
+      await new Promise(r => setTimeout(r, 1000));
+
+      // Verify
+      const after = await wdaGet('/wda/locked');
+      if (after.value) throw new Error('Unlock failed — wrong passcode?');
+    },
+
+    async lock() {
+      await wdaPost('/wda/lock');
+    },
+
+    async launch(bundleId) {
+      await page.unlock(passcode);
+      await wdaPost(`/session/${sid}/wda/apps/launch`, { bundleId });
+      _refMap = new Map();
+    },
+
+    async activate(bundleId) {
+      await wdaPost(`/session/${sid}/wda/apps/activate`, { bundleId });
+    },
+
+    async screenshot() {
+      const r = await wdaGet('/screenshot');
+      return Buffer.from(r.value, 'base64');
     },
 
     async waitForText(text, timeout = 10_000) {
@@ -316,107 +462,30 @@ export async function connect(opts = {}) {
       throw new Error(`waitForText("${text}") timed out after ${timeout}ms`);
     },
 
-    async screenshot() {
-      return takeScreenshot(pythonBin, rsdArgs);
-    },
-
-    async launch(bundleId) {
-      const result = await pmd3(pythonBin, rsdArgs, 'developer', 'dvt', 'launch', bundleId);
-      const pidMatch = result.stdout.match(/(\d+)\s*$/);
-      if (!pidMatch) throw new Error(`Could not parse PID from: ${result.stdout.trim()}`);
-      return parseInt(pidMatch[1], 10);
-    },
-
-    async kill(pid) {
-      await pmd3(pythonBin, rsdArgs, 'developer', 'dvt', 'kill', String(pid));
-    },
-
-    async tapXY(x, y) {
-      const ble = await ensureBle();
-      await ble.tapXY(x, y);
-    },
-
-    async moveCursor(dx, dy) {
-      const ble = await ensureBle();
-      await ble.moveBy(dx, dy);
-    },
-
-    async dwellTap(dx, dy, dwellMs = 1800) {
-      const ble = await ensureBle();
-      await ble.moveBy(dx, dy);
-      await new Promise(r => setTimeout(r, dwellMs));
-    },
-
-    async scroll(direction, amount = 3) {
-      const ble = await ensureBle();
-      const val = direction === 'up' ? amount : -amount;
-      await ble.scroll(val);
-    },
-
-    async type(text) {
-      const ble = await ensureBle();
-      await ble.type(text);
-    },
-
-    async press(key) {
-      const ble = await ensureBle();
-      await ble.pressKey(key);
-    },
-
-    async swipe(x1, y1, x2, y2, duration = 300) {
-      const ble = await ensureBle();
-      // Home cursor, move to start, then drag to end
-      await ble.homeCursor();
-      await ble.moveTo(x1, y1);
-      // Mouse down
-      ble.send('click'); // press
-      await new Promise(r => setTimeout(r, 100));
-      // Move to destination (relative from current position)
-      const dx = x2 - x1;
-      const dy = y2 - y1;
-      ble.send(`move ${dx} ${dy}`);
-      const maxDist = Math.max(Math.abs(dx), Math.abs(dy));
-      const steps = Math.ceil(maxDist / 10);
-      await new Promise(r => setTimeout(r, Math.max(duration, steps * 8 + 200)));
-      // Release — send zero-button report
-      // Note: the POC click command does press+release, so for drag we
-      // need the actual mouse report. For now, this is approximate.
-    },
-
-    async back() {
-      // iOS: swipe from left edge to go back
-      await page.swipe(5, 400, 200, 400, 300);
-    },
-
-    async home() {
-      // iOS: swipe up from bottom edge
-      await page.swipe(187, 800, 187, 300, 300);
-    },
-
-    async longPressXY(x, y, ms = 1000) {
-      const ble = await ensureBle();
-      await ble.homeCursor();
-      await ble.moveTo(x, y);
-      // Mouse down and hold
-      ble.send('click');
-      await new Promise(r => setTimeout(r, ms));
+    async waitForState(ref, state, timeout = 10_000) {
+      const start = Date.now();
+      while (Date.now() - start < timeout) {
+        const snap = await page.snapshot();
+        const node = _refMap.get(ref);
+        if (node) {
+          const has = state === 'enabled' ? node.enabled
+            : state === 'disabled' ? !node.enabled
+            : state === 'checked' ? node.checked
+            : state === 'unchecked' ? !node.checked
+            : state === 'focused' ? node.focused
+            : state === 'selected' ? node.selected
+            : null;
+          if (has) return snap;
+        }
+        await new Promise(r => setTimeout(r, 1000));
+      }
+      throw new Error(`waitForState: ref=${ref} not in state "${state}" after ${timeout}ms`);
     },
 
     close() {
-      if (_ble) {
-        _ble.stop();
-        _ble = null;
-      }
+      cleanup();
     },
   };
-
-  // Cleanup on process exit
-  process.on('exit', () => {
-    if (_ble) {
-      _ble.stop();
-      _ble = null;
-    }
-  });
 
   return page;
 }

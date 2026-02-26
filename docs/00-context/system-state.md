@@ -14,16 +14,18 @@ src/
 ├── aria.js       — Format tree as YAML with [ref=N] markers
 ├── interact.js   — tap, type, press, swipe, scroll, long-press
 ├── index.js      — Public API: connect(opts) → page object (Android)
-└── ios.js        — iOS API: connect(opts) → page object (pymobiledevice3 + BLE HID)
+├── ios.js        — iOS API: connect(opts) → page object (WDA over HTTP)
+├── usbmux.js     — Node.js usbmuxd client for iOS USB connection
+└── ios-cert.js   — WDA cert expiry tracking (7-day free Apple ID certs)
 
-mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools
+mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platform (Android + iOS)
 
-scripts/
-├── ios-tunnel.sh  — iOS bridge: USB/WiFi tunnel + BLE HID
-└── ios-ax.py      — iOS accessibility: dump elements + focus navigation
+ios/
+├── setup.sh      — Start iOS bridge: tunnel + DDI mount + WDA launch + port forward
+└── teardown.sh   — Stop all iOS bridge processes
 ```
 
-10 modules, ~1,200 lines, zero dependencies.
+12 modules, ~1,400 lines, zero dependencies.
 
 ## What's built
 
@@ -34,15 +36,18 @@ scripts/
 | 1.6 Waiting + intents | DONE | waitForText, waitForState, intent() |
 | 2.0 Termux ADB | DONE | isTermux, findLocalDevices, adbPair/Connect, connect({termux: true}) |
 | 2.5 Termux:API | DONE | 16 wrappers: SMS, calls, location, camera, clipboard, battery, volume, etc. |
-| 2.9 iOS module | DONE | `src/ios.js`: connect → page object with screenshot/launch/kill/tapXY/type/press/swipe/back/home. Unified setup script, live speed test. |
-| 2.95 iOS cable-free | DONE | WiFi tunnel (`--wifi` flag), accessibility snapshot (`scripts/ios-ax.py`), `waitForText()`, `tap(ref)` via Full Keyboard Access (Tab+Down+Space). Cable-free: WiFi + Bluetooth. Same `snapshot()` → `tap(ref)` pattern as Android. |
+| 2.9–2.95 iOS BLE HID | DONE (superseded) | pymobiledevice3 + BLE HID approach. Replaced by WDA in Phase 3.0. |
+| 3.0 iOS WDA rewrite | DONE | `src/ios.js` rewritten — WDA over HTTP. Real element tree, native click, zero Python at runtime. Same `snapshot()` → `tap(ref)` pattern as Android. |
+| 3.1 iOS translation layer | DONE | `translateWda()` converts WDA XML → Android node shape → shared `prune()` + `formatTree()` pipeline. Coordinate-based tap/scroll/longPress. Hierarchical YAML output identical to Android. |
+| 3.2 iOS usbmux + auto-connect | DONE | Node.js usbmuxd client replaces pymobiledevice3 port forwarder. Auto-discovery: WiFi (cached) > USB > localhost. unlock() error handling. iOS = QA only (USB required). |
+| 3.3 iOS CLI + MCP integration | DONE | Dual-platform MCP (platform param on all tools), CLI --platform flag, setup wizard, ios resign/teardown commands, cert expiry tracking (ios-cert.js). |
 
 ## What's next
 
 | Phase | Status | What |
 |-------|--------|------|
-| 2.7 iOS pymobiledevice3 spike | DONE | Screenshots, app launch/kill, device info from Linux over USB. 8 iOS tests. |
-| 2.8 iOS BLE HID input spike | DONE | BLE keyboard + mouse + combo proven, integration 6/6 passing |
+| 2.7 iOS pymobiledevice3 spike | DONE | Screenshots, app launch/kill, device info from Linux over USB. Historical. |
+| 2.8 iOS BLE HID input spike | DONE | BLE keyboard + mouse + combo proven. Superseded by WDA. |
 | 3 MCP server | DONE | JSON-RPC 2.0 over stdio, 10 tools (same pattern as barebrowse) |
 | 4 CLI session mode | DONE | cli.js + daemon.js + session-client.js |
 | 5 bareagent adapter | TODO | createMobileTools() → {tools, close} for bareagent Loop |
@@ -51,13 +56,11 @@ scripts/
 
 ## Tests
 
-150 tests (134 unit + 16 integration), 8 test files. All passing.
+136 unit tests + 26 integration tests, 9 test files. All passing.
 
 Run: `node --test test/unit/*.test.js test/integration/*.test.js`
 
-iOS tests (separate, require iPhone + tunnel): 8 tests in `test/ios/screenshot.test.js`, 6 tests in `test/ios/ble-hid.test.js`, 6 tests in `test/ios/integration.test.js`, 7 tests in `test/ios/ios-connect.test.js`.
-
-Run: `npm run test:ios`
+iOS tests from Phase 2.7–2.95 (BLE HID era) have been removed. iOS validation is now done via unit tests (`ios.test.js` + `usbmux.test.js`) and manual testing against WDA. Note: iOS is QA-only — WiFi tunnel requires Xcode/Mac for WiFi pairing, USB cable is required on Linux.
 
 ## Validation
 
@@ -65,7 +68,4 @@ Run: `npm run test:ios`
 - Termux ADB: POC validated (snapshot + tap + launch via localhost)
 - Termux:API: POC validated with Node.js inside Termux (battery, clipboard, volume, wifi, vibrate)
 - Termux:API (not yet validated): SMS, calls, location, camera (needs real device)
-- iOS pymobiledevice3: 8/8 tests passing — screenshots, app launch/kill, device info (Fedora 43, iPhone 13 mini)
-- iOS BLE HID: keyboard proven, mouse proven, combo proven, integration 6/6 passing
-- iOS module: `src/ios.js` — connect, screenshot, snapshot, tap(ref), waitForText, launch, kill, tapXY, type, press, swipe, back, home, longPressXY
-- iOS cable-free: WiFi tunnel (pymobiledevice3 remote start-tunnel), accessibility dump (iter_elements), tap(ref) via Full Keyboard Access (Escape→Tab→Down×N→Space through BLE HID keyboard). No mouse coordinates, no VoiceOver.
+- iOS WDA: `src/ios.js` — connect, snapshot, tap(ref), type, scroll, swipe, longPress, launch, back, home, screenshot, waitForText, tapXY. Translation layer (`translateWda()`) converts WDA XML → Android node shape → shared prune pipeline. Coordinate-based tap/scroll/longPress from bounds. Hierarchical YAML output identical to Android.

@@ -291,64 +291,78 @@ adb install path/to/app.apk
 adb forward tcp:9222 localabstract:chrome_devtools_remote
 ```
 
-## iOS (spike phase — vision-based, no accessibility tree)
+## iOS (WDA-based — same pattern as Android)
 
-baremobile is exploring iPhone control from Linux via Architecture C: pymobiledevice3 (USB) for screenshots + BLE HID (Bluetooth) for input. No Mac, no Xcode, no app installed on the phone.
+baremobile controls iPhones via WebDriverAgent (WDA) over HTTP. Same `snapshot()` → `tap(ref)` pattern as Android — hierarchical accessibility tree with `[ref=N]` markers, coordinate-based tap, type, scroll, screenshots. Translation layer converts WDA XML into Android node shape, then shared `prune()` + `formatTree()` pipeline produces identical YAML output.
 
-### What works now (Phase 2.7 — DONE)
-- `pymobiledevice3 developer dvt screenshot` — 2.5s PNG capture
-- `pymobiledevice3 developer dvt launch` — launch any app by bundle ID
-- `pymobiledevice3 developer dvt kill` — kill by PID
-- Device info, process list, syslog via lockdown/DVT services
+### Architecture
 
-### What's proven (Phase 2.8 — BLE HID input)
-- **BLE HID keyboard — WORKING.** Linux presents as Bluetooth keyboard, types into any iOS text field. Tested: `send_string hello` → "hello" appears in iPhone Notes.
-- BLE HID mouse — added, needs testing with AssistiveTouch enabled on iPhone
-- Integration: screenshot → decide where to tap → BLE mouse click → verify
+```
+WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
+                                                          (shared with Android)
+```
+
+Setup uses pymobiledevice3 (Python 3.12) for tunnel + DDI mount + WDA launch. Port forwarding handled by Node.js usbmux client (`src/usbmux.js`, replaces flaky pymobiledevice3 forwarder). Zero Python at runtime. `connect()` auto-discovers WDA via cached WiFi > USB proxy > localhost.
+
+### Quick start
+
+```js
+import { connect } from 'baremobile/src/ios.js';
+
+const page = await connect();
+console.log(await page.snapshot());   // hierarchical YAML with [ref=N] markers
+await page.tap(1);                    // coordinate tap via bounds center
+await page.type(2, 'hello');          // coordinate tap to focus + WDA keys
+await page.launch('com.apple.Preferences');
+await page.back();                    // find back button in refMap or swipe-from-left
+await page.screenshot();              // PNG buffer
+page.close();
+```
+
+### iOS Page Methods
+
+| Method | What it does |
+|--------|-------------|
+| `page.snapshot()` | WDA `/source` → `translateWda()` → `prune()` → `formatTree()` → hierarchical YAML |
+| `page.tap(ref)` | Coordinate tap at bounds center (x, y) |
+| `page.type(ref, text, opts)` | Coordinate tap to focus → WDA keys. `{clear: true}` to clear first |
+| `page.scroll(ref, direction)` | Coordinate-based swipe within element bounds (up/down/left/right) |
+| `page.swipe(x1, y1, x2, y2, duration)` | Raw swipe between coordinates |
+| `page.longPress(ref)` | W3C pointer action at bounds center with 1s pause |
+| `page.tapXY(x, y)` | Tap by pixel coordinates (vision fallback) |
+| `page.back()` | Search refMap for back button, fallback to swipe-from-left-edge |
+| `page.home()` | WDA `/wda/homescreen` |
+| `page.launch(bundleId)` | Launch app by bundle ID |
+| `page.screenshot()` | WDA `/screenshot` → PNG buffer |
+| `page.waitForText(text, timeout)` | Poll snapshot until text appears |
+| `page.press(key)` | Hardware buttons: `home`, `volumeup`, `volumedown` |
+| `page.unlock(passcode)` | Unlock device with passcode. Throws if passcode required but not provided, or wrong passcode. |
+| `page.close()` | Close the connection and clean up resources |
 
 ### Key differences from Android
-- **No accessibility tree** — can't dump the a11y tree on production iOS apps. Vision-only.
-- **No `page.snapshot()`** — iOS automation requires screenshot → LLM → coordinates → tap.
-- **USB required** — WiFi developer access blocked by Apple on iOS 17+ (separate remote pairing not completed).
-- **Input via BLE HID** — spike in progress. Linux BlueZ GATT server presents as HID keyboard/mouse.
-- **Phone must be unlocked** — developer services need an unlocked screen.
+- **Bundle IDs, not package names** — `com.apple.Preferences` not `com.android.settings`
+- **No intents** — use `page.launch(bundleId)` for app navigation
+- **No grid/tapGrid** — coordinate tap from bounds is reliable
+- **Back is semantic** — searches refMap for back button, falls back to swipe gesture
+- **Same hierarchical YAML** — shared `prune()` + `formatTree()` pipeline, identical output format
+- **press() is limited** — only `home`, `volumeup`, `volumedown`. Use `tap(ref)` for UI buttons.
 
-### What the iOS agent loop looks like
+### Requirements
 
-```
-1. screenshot (pymobiledevice3 over USB)     →  PNG image
-2. send to LLM / vision model               →  "tap at (200, 400)" or "type 'hello'"
-3. BLE HID mouse click at (200, 400)         →  AssistiveTouch tap
-   — or BLE HID keyboard send "hello"        →  keystrokes into focused field
-4. screenshot again                           →  verify result
-5. repeat
-```
-
-Unlike Android (accessibility tree → ref-based tap), iOS requires a vision model in the loop. The agent sees pixels, not a structured tree.
-
-### BLE HID setup requirements
-
-| Requirement | Detail |
-|------------|--------|
-| BlueZ 5.56+ | Linux Bluetooth stack (Fedora 43 ships 5.85) |
-| BLE-capable adapter | Most built-in laptop adapters work. Must support peripheral role. |
-| `dbus-python` + `PyGObject` | Python bindings for BlueZ D-Bus GATT server |
-| Disable BlueZ input plugin | `/etc/bluetooth/main.conf`: `DisablePlugins = input` — prevents BlueZ from claiming HID devices |
-| `ControllerMode = le` | `/etc/bluetooth/main.conf` — LE-only mode, prevents Classic BT duplicate |
-| AssistiveTouch on iPhone | Settings > Accessibility > Touch > AssistiveTouch > ON (for mouse/tap) |
-| One-time BLE pairing | iPhone sees "baremobile" in Bluetooth settings, tap to pair |
+| Requirement | Why |
+|------------|-----|
+| WDA on device | Signed with free Apple ID (7-day cert, re-sign weekly via AltServer-Linux) |
+| pymobiledevice3 | Setup only — tunnel, DDI mount, WDA launch. Python 3.12. |
+| USB cable (required) | WiFi tunnel requires Mac/Xcode for WiFi pairing — not possible on Linux |
+| Developer Mode on iPhone | Required for developer services |
 
 ### Setup
 ```bash
-# USB bridge (screenshots, app lifecycle)
-./scripts/ios-tunnel.sh setup    # first-time: reveal Developer Mode, enable WiFi
-./scripts/ios-tunnel.sh          # start bridge: usbmuxd + tunnel + dev image mount
-
-# BLE HID (input — spike in progress)
-sudo python3 test/ios/ble-hid-poc.py     # start GATT server, pair from iPhone
-
-# Tests
-npm run test:ios                 # 8 screenshot/lifecycle tests
+# First-time: see ios/SETUP.md (iPhone pairing + WDA installation)
+# Each session:
+./ios/setup.sh       # tunnel + DDI + WDA + port forward
+# When done:
+./ios/teardown.sh    # kill all bridge processes
 ```
 
 ## MCP Server Integration
@@ -363,20 +377,24 @@ claude mcp add baremobile -- node /path/to/baremobile/mcp-server.js
 # Or use .mcp.json in the project root (auto-detected)
 ```
 
-### Tools (10)
+### Tools (10, dual-platform)
+
+All tools accept optional `platform: "android" | "ios"` (default: android). Both platforms can be used in the same session.
 
 | Tool | Params | Returns |
 |------|--------|---------|
-| `snapshot` | `maxChars?` | YAML tree (or file path if >30K chars) |
-| `tap` | `ref` | `'ok'` |
-| `type` | `ref`, `text`, `clear?` | `'ok'` |
-| `press` | `key` | `'ok'` |
-| `scroll` | `ref`, `direction` | `'ok'` |
-| `swipe` | `x1`, `y1`, `x2`, `y2`, `duration?` | `'ok'` |
-| `long_press` | `ref` | `'ok'` |
-| `launch` | `pkg` | `'ok'` |
-| `screenshot` | — | base64 PNG (image content type) |
-| `back` | — | `'ok'` |
+| `snapshot` | `maxChars?`, `platform?` | YAML tree (or file path if >30K chars) |
+| `tap` | `ref`, `platform?` | `'ok'` |
+| `type` | `ref`, `text`, `clear?`, `platform?` | `'ok'` |
+| `press` | `key`, `platform?` | `'ok'` |
+| `scroll` | `ref`, `direction`, `platform?` | `'ok'` |
+| `swipe` | `x1`, `y1`, `x2`, `y2`, `duration?`, `platform?` | `'ok'` |
+| `long_press` | `ref`, `platform?` | `'ok'` |
+| `launch` | `pkg`, `platform?` | `'ok'` |
+| `screenshot` | `platform?` | base64 PNG (image content type) |
+| `back` | `platform?` | `'ok'` |
+
+iOS cert warning: if WDA cert is >6 days old or missing, warning is prepended to the first iOS snapshot.
 
 ### Convention
 Action tools return `'ok'` — call `snapshot` to observe the result. This matches the barebrowse MCP pattern.
@@ -390,9 +408,17 @@ baremobile includes a CLI for session-based control — start a daemon, issue co
 
 ### Session lifecycle
 ```bash
-baremobile open [--device=SERIAL]    # start daemon, writes session.json
+baremobile open [--device=SERIAL] [--platform=android|ios]
+                                     # start daemon, writes session.json
 baremobile status                    # check if session is alive
 baremobile close                     # shut down daemon, clean up
+```
+
+### Setup & iOS management
+```bash
+baremobile setup                     # interactive setup wizard (Android or iOS)
+baremobile ios resign                # re-sign WDA cert (7-day Apple free cert)
+baremobile ios teardown              # kill iOS tunnel/WDA processes
 ```
 
 ### Commands

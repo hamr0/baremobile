@@ -7,9 +7,9 @@
 |------|------|
 | [vision.md](00-context/vision.md) | Product purpose, principles, boundaries |
 | [assumptions.md](00-context/assumptions.md) | Constraints, risks, open questions |
-| [system-state.md](00-context/system-state.md) | Current architecture, what's built, what's next |
+| [system-state.md](00-context/system-state.md) | Current architecture (11 modules), what's built (through Phase 3.2), what's next |
 | [research.md](00-context/research.md) | Platform feasibility research (Android, iOS, Windows, macOS, Linux) |
-| [ios-exploration.md](00-context/ios-exploration.md) | iOS bridging analysis (pymobiledevice3, WDA, BLE HID). Setup/packages in dev-setup.md |
+| [ios-exploration.md](00-context/ios-exploration.md) | iOS translation layer design — WDA XML → Android node shape → shared prune pipeline. Phase 3.2: usbmux.js + auto-connect. Phase 3.3: CLI + MCP integration, cert tracking, setup wizard. **iOS = QA only** (USB required on Linux). |
 
 ### 01-product/ — What the product must do
 | File | What |

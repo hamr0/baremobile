@@ -3,13 +3,14 @@
  *
  * startDaemon()  — spawn a detached child process running the daemon
  * runDaemon()    — the actual HTTP server (called via --daemon-internal)
+ *
+ * Supports both Android and iOS via --platform flag.
  */
 
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
 import { writeFileSync, mkdirSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
 import { join, resolve } from 'node:path';
-import { connect } from './index.js';
 
 const SESSION_FILE = 'session.json';
 
@@ -29,6 +30,7 @@ export async function startDaemon(opts, outputDir) {
   const args = [join(import.meta.dirname, '..', 'cli.js'), '--daemon-internal'];
   args.push('--output-dir', absDir);
   if (opts.device) args.push('--device', opts.device);
+  if (opts.platform) args.push('--platform', opts.platform);
 
   const child = spawn(process.execPath, args, {
     detached: true,
@@ -59,28 +61,39 @@ export async function runDaemon(opts, outputDir) {
   const absDir = resolve(outputDir);
   mkdirSync(absDir, { recursive: true });
 
-  // Connect to device
-  const page = await connect({
+  const platform = opts.platform || 'android';
+
+  // Connect to device — dynamic import based on platform
+  const connectFn = platform === 'ios'
+    ? (await import('./ios.js')).connect
+    : (await import('./index.js')).connect;
+
+  const page = await connectFn({
     device: opts.device,
   });
 
-  // Logcat capture
+  // Logcat capture (Android only)
   const logcatEntries = [];
   let logcatChild = null;
-  try {
-    const logcatArgs = ['-s', page.serial, 'logcat', '-v', 'time'];
-    logcatChild = spawn('adb', logcatArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
-    let partial = '';
-    logcatChild.stdout.on('data', (chunk) => {
-      partial += chunk.toString();
-      const lines = partial.split('\n');
-      partial = lines.pop(); // keep incomplete last line
-      for (const line of lines) {
-        if (line.trim()) logcatEntries.push(line);
-      }
-    });
-    logcatChild.on('error', () => { /* adb not found or device gone — ignore */ });
-  } catch { /* logcat optional — don't block daemon */ }
+  if (platform === 'android') {
+    try {
+      const logcatArgs = ['-s', page.serial, 'logcat', '-v', 'time'];
+      logcatChild = spawn('adb', logcatArgs, { stdio: ['ignore', 'pipe', 'ignore'] });
+      let partial = '';
+      logcatChild.stdout.on('data', (chunk) => {
+        partial += chunk.toString();
+        const lines = partial.split('\n');
+        partial = lines.pop(); // keep incomplete last line
+        for (const line of lines) {
+          if (line.trim()) logcatEntries.push(line);
+        }
+      });
+      logcatChild.on('error', () => { /* adb not found or device gone — ignore */ });
+    } catch { /* logcat optional — don't block daemon */ }
+  }
+
+  // Android-only handler guard
+  const androidOnly = (name) => () => ({ ok: false, error: `${name} is not available on iOS` });
 
   // Command handlers
   const handlers = {
@@ -150,12 +163,13 @@ export async function runDaemon(opts, outputDir) {
       return { ok: true };
     },
 
-    async 'tap-grid'({ cell }) {
+    // Android-only handlers — return error on iOS
+    'tap-grid': platform === 'ios' ? androidOnly('tap-grid') : async ({ cell }) => {
       await page.tapGrid(cell);
       return { ok: true };
     },
 
-    async intent({ action, extras }) {
+    intent: platform === 'ios' ? androidOnly('intent') : async ({ action, extras }) => {
       await page.intent(action, extras || {});
       return { ok: true };
     },
@@ -176,12 +190,12 @@ export async function runDaemon(opts, outputDir) {
       return { ok: true, file };
     },
 
-    async grid() {
+    grid: platform === 'ios' ? androidOnly('grid') : async () => {
       const g = await page.grid();
       return { ok: true, value: g };
     },
 
-    async logcat({ filter, clear } = {}) {
+    logcat: platform === 'ios' ? androidOnly('logcat') : async ({ filter, clear } = {}) => {
       let entries = logcatEntries;
       if (filter) {
         entries = entries.filter(line => line.includes(filter));
@@ -270,6 +284,7 @@ export async function runDaemon(opts, outputDir) {
   writeFileSync(sessionPath, JSON.stringify({
     port,
     pid: process.pid,
+    platform,
     startedAt: new Date().toISOString(),
   }));
 

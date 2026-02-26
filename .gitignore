@@ -2,3 +2,4 @@ node_modules/
 .baremobile/
 .idea/
 .claude/
+.wda/

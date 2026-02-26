@@ -5,14 +5,15 @@
  * Raw JSON-RPC 2.0 over stdio. No SDK dependency.
  * 10 tools: snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back.
  *
- * Session tools share a singleton page, lazy-created on first use.
+ * Dual-platform: Android (default) and iOS. Each platform gets its own
+ * lazy-created page. Pass platform: "ios" to target iPhone.
  * Action tools return 'ok' — agent calls snapshot explicitly to observe.
  */
 
-import { connect } from './src/index.js';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { checkIosCert } from './src/ios-cert.js';
 
 const MAX_CHARS_DEFAULT = 30000;
 const OUTPUT_DIR = join(process.cwd(), '.baremobile');
@@ -25,12 +26,26 @@ function saveSnapshot(text) {
   return file;
 }
 
-let _page = null;
+let _pages = { android: null, ios: null };
+let _iosCertWarning = null;
 
-async function getPage() {
-  if (!_page) _page = await connect();
-  return _page;
+async function getPage(platform = 'android') {
+  if (!_pages[platform]) {
+    if (platform === 'ios') {
+      _iosCertWarning = checkIosCert();
+      const mod = await import('./src/ios.js');
+      _pages[platform] = await mod.connect();
+    } else {
+      const mod = await import('./src/index.js');
+      _pages[platform] = await mod.connect();
+    }
+  }
+  return _pages[platform];
 }
+
+const PLATFORM_PROP = {
+  platform: { type: 'string', enum: ['android', 'ios'], description: 'Target platform (default: android)' },
+};
 
 const TOOLS = [
   {
@@ -40,6 +55,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         maxChars: { type: 'number', description: 'Max chars to return inline. Larger snapshots are saved to .baremobile/ and a file path is returned instead. Default: 30000.' },
+        ...PLATFORM_PROP,
       },
     },
   },
@@ -50,6 +66,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         ref: { type: 'string', description: 'Element ref from snapshot (e.g. "8")' },
+        ...PLATFORM_PROP,
       },
       required: ['ref'],
     },
@@ -63,6 +80,7 @@ const TOOLS = [
         ref: { type: 'string', description: 'Element ref from snapshot' },
         text: { type: 'string', description: 'Text to type' },
         clear: { type: 'boolean', description: 'Clear existing content first (default: false)' },
+        ...PLATFORM_PROP,
       },
       required: ['ref', 'text'],
     },
@@ -74,6 +92,7 @@ const TOOLS = [
       type: 'object',
       properties: {
         key: { type: 'string', description: 'Key name (e.g. "home", "back", "enter")' },
+        ...PLATFORM_PROP,
       },
       required: ['key'],
     },
@@ -86,6 +105,7 @@ const TOOLS = [
       properties: {
         ref: { type: 'string', description: 'Element ref to scroll (e.g. "3")' },
         direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: 'Scroll direction' },
+        ...PLATFORM_PROP,
       },
       required: ['ref', 'direction'],
     },
@@ -101,6 +121,7 @@ const TOOLS = [
         x2: { type: 'number', description: 'End X coordinate' },
         y2: { type: 'number', description: 'End Y coordinate' },
         duration: { type: 'number', description: 'Swipe duration in ms (default: 300)' },
+        ...PLATFORM_PROP,
       },
       required: ['x1', 'y1', 'x2', 'y2'],
     },
@@ -112,17 +133,19 @@ const TOOLS = [
       type: 'object',
       properties: {
         ref: { type: 'string', description: 'Element ref from snapshot' },
+        ...PLATFORM_PROP,
       },
       required: ['ref'],
     },
   },
   {
     name: 'launch',
-    description: 'Launch an app by package name. Returns ok — call snapshot to observe.',
+    description: 'Launch an app by identifier. Returns ok — call snapshot to observe.',
     inputSchema: {
       type: 'object',
       properties: {
-        pkg: { type: 'string', description: 'Android package name (e.g. "com.android.settings")' },
+        pkg: { type: 'string', description: 'App identifier (e.g. "com.android.settings" or "com.apple.Preferences")' },
+        ...PLATFORM_PROP,
       },
       required: ['pkg'],
     },
@@ -130,20 +153,33 @@ const TOOLS = [
   {
     name: 'screenshot',
     description: 'Take a screenshot. Returns base64-encoded PNG image.',
-    inputSchema: { type: 'object', properties: {} },
+    inputSchema: {
+      type: 'object',
+      properties: { ...PLATFORM_PROP },
+    },
   },
   {
     name: 'back',
-    description: 'Press the Android back button. Returns ok.',
-    inputSchema: { type: 'object', properties: {} },
+    description: 'Navigate back. Returns ok.',
+    inputSchema: {
+      type: 'object',
+      properties: { ...PLATFORM_PROP },
+    },
   },
 ];
 
 async function handleToolCall(name, args) {
+  const platform = args.platform || 'android';
+
   switch (name) {
     case 'snapshot': {
-      const page = await getPage();
-      const text = await page.snapshot();
+      const page = await getPage(platform);
+      let text = await page.snapshot();
+      // Prepend cert warning on first iOS snapshot
+      if (platform === 'ios' && _iosCertWarning) {
+        text = `⚠️ ${_iosCertWarning}\n\n${text}`;
+        _iosCertWarning = null;
+      }
       const limit = args.maxChars ?? MAX_CHARS_DEFAULT;
       if (text.length > limit) {
         const file = saveSnapshot(text);
@@ -152,48 +188,48 @@ async function handleToolCall(name, args) {
       return text;
     }
     case 'tap': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.tap(args.ref);
       return 'ok';
     }
     case 'type': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.type(args.ref, args.text, { clear: args.clear });
       return 'ok';
     }
     case 'press': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.press(args.key);
       return 'ok';
     }
     case 'scroll': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.scroll(args.ref, args.direction);
       return 'ok';
     }
     case 'swipe': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.swipe(args.x1, args.y1, args.x2, args.y2, args.duration);
       return 'ok';
     }
     case 'long_press': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.longPress(args.ref);
       return 'ok';
     }
     case 'launch': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.launch(args.pkg);
       return 'ok';
     }
     case 'screenshot': {
-      const page = await getPage();
+      const page = await getPage(platform);
       const buf = await page.screenshot();
       const b64 = buf.toString('base64');
       return { _image: b64 };
     }
     case 'back': {
-      const page = await getPage();
+      const page = await getPage(platform);
       await page.back();
       return 'ok';
     }
@@ -217,7 +253,7 @@ async function handleMessage(msg) {
     return jsonrpcResponse(id, {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'baremobile', version: '0.3.0' },
+      serverInfo: { name: 'baremobile', version: '0.4.0' },
     });
   }
 
@@ -283,12 +319,12 @@ if (isMain) {
   });
 
   process.on('SIGINT', async () => {
-    if (_page) _page.close();
+    for (const p of Object.values(_pages)) if (p) p.close();
     process.exit(0);
   });
 
   process.on('SIGTERM', async () => {
-    if (_page) _page.close();
+    for (const p of Object.values(_pages)) if (p) p.close();
     process.exit(0);
   });
 }
