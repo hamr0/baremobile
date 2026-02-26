@@ -253,7 +253,7 @@ async function handleMessage(msg) {
     return jsonrpcResponse(id, {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'baremobile', version: '0.4.0' },
+      serverInfo: { name: 'baremobile', version: '0.7.0' },
     });
   }
 
