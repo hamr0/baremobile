@@ -1,5 +1,49 @@
 # Changelog
 
+## 0.7.0
+
+iOS full integration — dual-platform MCP, CLI `--platform` flag, setup wizard, cert tracking.
+
+### New modules
+- `src/ios.js` — Rewritten WDA-based iOS control. Translation layer (`translateWda()`) converts WDA XML → Android node shape → shared `prune()` + `formatTree()` pipeline. Auto-discovery: cached WiFi > USB (usbmux) > localhost. Coordinate-based tap/scroll/longPress from bounds.
+- `src/usbmux.js` — Node.js usbmuxd client (~130 lines, zero deps). Binary protocol to `/var/run/usbmuxd`. Replaces pymobiledevice3 port forwarder (was crashing with socket cleanup race).
+- `src/ios-cert.js` — WDA cert expiry tracking. `checkIosCert()` warns when 7-day free Apple ID cert is stale. `recordIosSigning()` records timestamp.
+- `ios/setup.sh` — Start iOS bridge: tunnel + DDI mount + WDA launch
+- `ios/teardown.sh` — Stop all iOS bridge processes
+
+### New features
+- **Dual-platform MCP**: `mcp-server.js` holds per-platform page slots, lazy-created. Every tool accepts `platform: "ios"` (default: android). Both platforms in same session.
+- **CLI `--platform=ios`**: `baremobile open --platform=ios` starts iOS daemon. Platform stored in session.json. Android-only commands (`logcat`, `intent`, `tap-grid`, `grid`) return error on iOS.
+- **Setup wizard**: `baremobile setup` — interactive, auto-detects what's done, guides through remaining steps for Android or iOS.
+- **Cert resign**: `baremobile ios resign` — interactive AltServer signing with Apple ID + password + 2FA prompts. Records timestamp for expiry tracking.
+- **iOS teardown**: `baremobile ios teardown` — kills tunnel/WDA processes.
+- **Cert warning**: MCP prepends warning to first iOS snapshot if cert is >6 days old or missing.
+
+### Changed
+- `src/daemon.js` — Dynamic import based on platform, logcat skipped for iOS, Android-only handler guards, platform in session.json
+- `cli.js` — `--platform` flag, setup/resign/teardown commands, updated usage text
+- `mcp-server.js` — Removed static import, per-platform page cache, platform param on all tools, neutralized descriptions
+- `src/aria.js` — 29 iOS CLASS_MAP entries (Button, Text, Cell, Switch, Key, Icon, etc.)
+- `src/prune.js` — iOS-compatible pruning (editable detection, bounds handling)
+
+### Removed
+- BLE HID era scripts and tests (moved to `ios/aria-kba-old/` for reference)
+- `scripts/ios-ax.py`, `scripts/ios-live-test.js`, `scripts/ios-tunnel.sh`
+- `test/ios/` — replaced by `test/unit/ios.test.js` + `ios/test-wda.js`
+
+### Tests
+- 136 unit tests (up from 129), 26 integration tests, 9 test files
+- New: `test/unit/ios.test.js` — 24 tests (translateWda shape, pipeline integration, CLASS_MAP, coordinates)
+- New: `test/unit/usbmux.test.js` — 4 tests (plist parsing, packet construction, forward lifecycle, header format)
+
+### Docs
+- All 7 doc files updated for Phase 3.3
+- `baremobile.context.md`: MCP tools table with `platform?`, setup/resign commands
+- `docs/customer-guide.md`: iOS prerequisites, resign flow, CLI/MCP iOS usage
+- `docs/01-product/prd.md`: Phase 3.3 added, MCP section updated for dual-platform
+- `docs/04-process/testing.md`: iOS MCP verification steps
+- iOS = QA only stated clearly everywhere (USB required on Linux)
+
 ## 0.6.0
 
 CLI session mode — 22 commands, logcat capture, `--json` flag for agent consumption.
