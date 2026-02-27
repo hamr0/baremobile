@@ -25,12 +25,14 @@ describe('detectHost', () => {
 });
 
 describe('which', () => {
-  it('returns true for node', () => {
-    assert.equal(which('node'), true);
+  it('returns full path for node', () => {
+    const result = which('node');
+    assert.ok(result, 'should return a path');
+    assert.ok(result.includes('node'), `path should contain "node", got ${result}`);
   });
 
-  it('returns false for nonexistent binary', () => {
-    assert.equal(which('nonexistent-binary-xyz-12345'), false);
+  it('returns null for nonexistent binary', () => {
+    assert.equal(which('nonexistent-binary-xyz-12345'), null);
   });
 });
 

@@ -31,15 +31,25 @@ export function detectHost() {
 }
 
 /**
- * Sync PATH check for a binary.
+ * Sync PATH check for a binary. Returns full path or null.
  * @param {string} bin
- * @returns {boolean}
+ * @returns {string|null}
  */
 export function which(bin) {
   try {
-    execFileSync('which', [bin], { stdio: 'pipe' });
-    return true;
-  } catch { return false; }
+    return execFileSync('which', [bin], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] }).trim();
+  } catch { return null; }
+}
+
+/**
+ * Run a system command with elevated privileges (pkexec on Linux, sudo on WSL/macOS).
+ * @param {string[]} args
+ * @param {{ host?: object }} [opts]
+ */
+function elevatedExec(args, opts = {}) {
+  const host = opts.host || detectHost();
+  const cmd = host.os === 'wsl' ? 'sudo' : host.os === 'macos' ? 'sudo' : 'pkexec';
+  return execFileSync(cmd, args, { stdio: 'inherit' });
 }
 
 /**
@@ -321,10 +331,27 @@ export async function setupIos(ui) {
     } else {
       ui.warn('libdns_sd missing (needed for AltServer signing)');
       if (host.pkg === 'dnf') {
-        ui.write('   Fix: sudo dnf install avahi-compat-libdns_sd\n');
-        ui.write('        sudo ln -s /usr/lib64/libdns_sd.so.1 /usr/lib64/libdns_sd.so\n');
+        const ans = await ui.prompt('   Install avahi-compat-libdns_sd? [Y/n] ');
+        if (ans.toLowerCase() !== 'n') {
+          try {
+            execFileSync('sudo', ['dnf', 'install', '-y', 'avahi-compat-libdns_sd'], { stdio: 'inherit' });
+            // Create symlink if needed
+            if (!existsSync('/usr/lib64/libdns_sd.so') && existsSync('/usr/lib64/libdns_sd.so.1')) {
+              execFileSync('sudo', ['ln', '-sf', '/usr/lib64/libdns_sd.so.1', '/usr/lib64/libdns_sd.so'], { stdio: 'inherit' });
+            }
+            ui.ok('libdns_sd installed');
+          } catch { ui.fail('Installation failed. Install manually and re-run.'); }
+        }
       } else if (host.pkg === 'apt') {
-        ui.write('   Fix: sudo apt install libavahi-compat-libdnssd-dev\n');
+        const ans = await ui.prompt('   Install libavahi-compat-libdnssd-dev? [Y/n] ');
+        if (ans.toLowerCase() !== 'n') {
+          try {
+            execFileSync('sudo', ['apt', 'install', '-y', 'libavahi-compat-libdnssd-dev'], { stdio: 'inherit' });
+            ui.ok('libdns_sd installed');
+          } catch { ui.fail('Installation failed. Install manually and re-run.'); }
+        }
+      } else {
+        ui.write('   Install libdns_sd manually for your distro.\n');
       }
     }
   } else {
@@ -424,7 +451,7 @@ export async function setupIos(ui) {
 
   // Step 9: Start WDA server
   ui.step(9, 'Starting WDA server');
-  await startWda(ui);
+  await startWda(ui, '9');
 
   // Step 10: Verify
   ui.step(10, 'Final verification');
@@ -444,12 +471,15 @@ export async function setupIos(ui) {
 
 /**
  * Start WDA server — 5 steps. For when iPhone is already set up.
+ * @param {object} ui
+ * @param {string} [prefix] — step prefix for sub-steps (e.g. '9' → 9a, 9b, ...)
  */
-export async function startWda(ui) {
+export async function startWda(ui, prefix) {
+  const s = (n) => prefix ? `${prefix}${String.fromCharCode(96 + n)}` : n;
   const host = detectHost();
 
   // Step 1: Check USB device
-  ui.step(1, 'Checking USB device');
+  ui.step(s(1), 'Checking USB device');
   const device = await findUsbDevice();
   if (!device) {
     ui.fail('No USB device connected. Connect iPhone first.');
@@ -458,7 +488,7 @@ export async function startWda(ui) {
   ui.ok(`Device: ${device.serial}`);
 
   // Step 2: Start tunnel
-  ui.step(2, 'Starting tunnel (requires elevated access)');
+  ui.step(s(2), 'Starting tunnel (requires elevated access)');
   // Kill stale tunnels
   try {
     execFileSync('pkill', ['-f', 'pymobiledevice3.*start-tunnel'], { stdio: 'pipe' });
@@ -491,11 +521,15 @@ export async function startWda(ui) {
       env,
     });
   } else {
-    // Linux: pkexec
+    // Linux: pkexec — must use full paths (pkexec resets PATH)
+    const pmd3Path = which('pymobiledevice3');
+    if (!pmd3Path) {
+      ui.fail('pymobiledevice3 not in PATH');
+      return;
+    }
     const py = findPython();
     const envArgs = [];
     if (py) {
-      // Pass PYTHONPATH so pkexec finds pymobiledevice3
       try {
         const sitePackages = execFileSync(py, ['-c', 'import site; print(site.getusersitepackages())'], {
           encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
@@ -504,7 +538,7 @@ export async function startWda(ui) {
       } catch { /* best effort */ }
     }
     ui.write('   Starting tunnel via pkexec (authenticate in popup)...\n');
-    tunnelChild = spawn('pkexec', [...envArgs, 'pymobiledevice3', 'lockdown', 'start-tunnel'], {
+    tunnelChild = spawn('pkexec', [...envArgs, pmd3Path, 'lockdown', 'start-tunnel'], {
       stdio: ['pipe', 'pipe', 'pipe'],
       detached: true,
     });
@@ -529,7 +563,7 @@ export async function startWda(ui) {
   ui.ok(`Tunnel: ${rsd.rsdAddr} port ${rsd.rsdPort} (PID ${tunnelChild.pid})`);
 
   // Step 3: Mount DDI
-  ui.step(3, 'Mounting Developer Disk Image');
+  ui.step(s(3), 'Mounting Developer Disk Image');
   try {
     pmd3(['mounter', 'auto-mount', '--rsd', rsd.rsdAddr, rsd.rsdPort]);
     ui.ok('DDI mounted');
@@ -545,7 +579,7 @@ export async function startWda(ui) {
   }
 
   // Step 4: Launch WDA
-  ui.step(4, 'Launching WDA');
+  ui.step(s(4), 'Launching WDA');
   const bundle = findWdaBundle();
   if (!bundle) {
     ui.fail('WDA not installed on device. Run full setup (option 2) first.');
@@ -574,7 +608,7 @@ asyncio.run(main())
   ui.ok(`WDA launching (PID ${wdaChild.pid})...`);
 
   // Step 5: Port forward + verify
-  ui.step(5, 'Port forwarding and verification');
+  ui.step(s(5), 'Port forwarding and verification');
 
   // Kill stale port 8100
   try {
