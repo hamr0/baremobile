@@ -485,6 +485,8 @@ export async function setupIos(ui) {
       return;
     }
     // AltServer signing flow
+    ui.write('   You need an Apple ID (free account works). Not sure if you have one?\n');
+    ui.write('   Try logging in at https://developer.apple.com/\n\n');
     const email = await ui.prompt('Apple ID email: ');
     if (!email) { ui.fail('Email required.'); return; }
     const password = await ui.prompt('Apple ID password: ');
@@ -821,6 +823,8 @@ export async function renewCert(ui) {
 
   // Step 3: Sign
   ui.step(3, 'Signing WDA');
+  ui.write('   You need an Apple ID (free account works). Not sure if you have one?\n');
+  ui.write('   Try logging in at https://developer.apple.com/\n\n');
   const email = await ui.prompt('Apple ID email: ');
   if (!email) { ui.fail('Email required.'); return; }
   const password = await ui.prompt('Apple ID password: ');
