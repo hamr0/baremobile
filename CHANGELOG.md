@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.7.8
+
+Android setup wizard with 4 connection modes.
+
+### New
+- **Android sub-menu**: `baremobile setup` → Android now shows 4 options: Emulator, USB device, WiFi device, Termux.
+- **`ensureAdb(ui, host)`**: Detects `adb` in PATH, installs via brew/dnf/apt if missing with user confirmation.
+- **`ensureSdk(ui, host)`**: Finds existing Android SDK or installs command-line tools + platform-tools + emulator + Android 35 system image (~3GB). macOS via Homebrew, Linux/WSL via direct download.
+- **`findSdkRoot()`**: Checks `ANDROID_HOME`, `ANDROID_SDK_ROOT`, common paths (`~/Android/Sdk`, `/usr/lib/android-sdk`), and PATH-based inference.
+- **`findSdkTool(sdkRoot, tool)`**: Locates SDK binaries (sdkmanager, avdmanager, emulator) across standard SDK directory layouts.
+- **Emulator flow**: Full SDK install → AVD creation (`baremobile` AVD, Pixel 6, Google APIs image) → emulator launch → boot polling (up to 120s) → verification.
+- **USB flow**: Improved device detection with specific handling for `unauthorized`, `offline`, and missing states. Minimum version note (Android 10+).
+- **WiFi flow**: Detects existing WiFi-connected devices, guides USB-first TCP/IP setup or direct IP connect.
+- **Termux flow**: Detects `$TERMUX_VERSION` env var. Inside Termux: guides package install + wireless debugging pair/connect. Outside Termux: explains use case, links to F-Droid, mentions Termux:API.
+
+### Fixed (found during real-device testing)
+- **`findSdkTool` matched directories**: `/android-sdk/emulator` (directory) returned instead of `/android-sdk/emulator/emulator` (binary). Now checks `statSync().isFile()`.
+- **Missing `ANDROID_HOME` in spawned processes**: avdmanager/emulator couldn't find AVDs or system images. Now threads `sdkEnv` to all SDK commands.
+- **AVD name collision**: `includes('baremobile')` false-matched `baremobile-test`. Now uses exact regex.
+- **Wrong system image name**: Hardcoded `google_apis` but some SDKs have `google_apis_playstore`. New `findSystemImage()` detects what's installed.
+- **Unhandled emulator spawn error**: EACCES crashed Node. Now catches spawn errors gracefully.
+- **Stale emulator processes**: Kills old qemu processes before launching fresh emulator.
+
+### Tests
+- 186 unit tests (up from 179). New: findSdkRoot env var handling (3), findSdkTool null/fallback/directory-skip (4).
+
 ## 0.7.7
 
 WDA-only restart with stored RSD — no pkexec popup.

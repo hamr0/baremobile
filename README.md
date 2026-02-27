@@ -118,12 +118,19 @@ Compact, token-efficient. Interactive elements get `[ref=N]` markers. The agent 
 
 ## Device setup
 
+The interactive wizard handles everything -- adb install, SDK setup, device connection:
+
+```bash
+npx baremobile setup   # Android: emulator, USB, WiFi, or Termux
+```
+
+**Manual setup** (USB):
 1. Enable Developer Options -- Settings > About phone > tap "Build number" 7 times
 2. Enable USB debugging -- Settings > Developer options > toggle on
 3. Connect device via USB, tap "Allow" on the prompt
 4. Verify -- `adb devices` should show your device
 
-For WiFi: `adb tcpip 5555` then `adb connect <device-ip>:5555`. For emulators: no setup needed. For Termux and iOS setup, see [docs/customer-guide.md](docs/customer-guide.md).
+Android 10+ required (2019 or newer). For WiFi, Termux, emulator, and iOS setup details, see [docs/customer-guide.md](docs/customer-guide.md).
 
 ## Tested against
 

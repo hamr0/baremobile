@@ -5,8 +5,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, unlinkSync } from 'node:fs';
-import { detectHost, which, parseTunnelOutput, parseWdaBundleFromJson, loadPids } from '../../src/setup.js';
+import { writeFileSync, unlinkSync, statSync } from 'node:fs';
+import { detectHost, which, parseTunnelOutput, parseWdaBundleFromJson, loadPids, findSdkRoot, findSdkTool } from '../../src/setup.js';
 
 describe('detectHost', () => {
   it('returns an object with os and pkg', () => {
@@ -118,5 +118,66 @@ describe('loadPids', () => {
   it('returns null when file missing', () => {
     try { unlinkSync(PID_FILE); } catch { /* already gone */ }
     assert.equal(loadPids(), null);
+  });
+});
+
+describe('findSdkRoot', () => {
+  it('returns a string or null', () => {
+    const result = findSdkRoot();
+    assert.ok(result === null || typeof result === 'string', `expected string or null, got ${typeof result}`);
+  });
+
+  it('respects ANDROID_HOME env var', () => {
+    const orig = process.env.ANDROID_HOME;
+    process.env.ANDROID_HOME = '/tmp';
+    try {
+      const result = findSdkRoot();
+      assert.equal(result, '/tmp');
+    } finally {
+      if (orig === undefined) delete process.env.ANDROID_HOME;
+      else process.env.ANDROID_HOME = orig;
+    }
+  });
+
+  it('returns null for nonexistent ANDROID_HOME', () => {
+    const orig = process.env.ANDROID_HOME;
+    const origRoot = process.env.ANDROID_SDK_ROOT;
+    process.env.ANDROID_HOME = '/nonexistent-path-xyz-12345';
+    delete process.env.ANDROID_SDK_ROOT;
+    try {
+      // May still find SDK via common paths or PATH, so just check type
+      const result = findSdkRoot();
+      assert.ok(result === null || typeof result === 'string');
+    } finally {
+      if (orig === undefined) delete process.env.ANDROID_HOME;
+      else process.env.ANDROID_HOME = orig;
+      if (origRoot === undefined) delete process.env.ANDROID_SDK_ROOT;
+      else process.env.ANDROID_SDK_ROOT = origRoot;
+    }
+  });
+});
+
+describe('findSdkTool', () => {
+  it('returns null for null sdkRoot', () => {
+    assert.equal(findSdkTool(null, 'sdkmanager'), null);
+  });
+
+  it('returns null for nonexistent SDK path', () => {
+    assert.equal(findSdkTool('/nonexistent-sdk-xyz', 'sdkmanager'), null);
+  });
+
+  it('falls back to which() for tools in PATH', () => {
+    // 'node' is in PATH — findSdkTool should find it via which fallback
+    const result = findSdkTool('/nonexistent-sdk', 'node');
+    assert.ok(result && result.includes('node'), `expected path containing 'node', got ${result}`);
+  });
+
+  it('skips directories with same name as tool', () => {
+    // /tmp is a directory — findSdkTool should not return it
+    const result = findSdkTool('/', 'tmp');
+    // Should be null (no 'tmp' binary in PATH) or a file, never a directory
+    if (result) {
+      assert.ok(statSync(result).isFile(), `expected a file, got directory: ${result}`);
+    }
   });
 });

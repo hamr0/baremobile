@@ -19,7 +19,7 @@ src/
   ios.js           -- iOS API: connect(opts) -> page object (WDA over HTTP)
   prune.js         -- Pruning pipeline + ref assignment
   session-client.js -- Client for daemon IPC (CLI <-> daemon)
-  setup.js         -- Interactive setup wizard (Android + iOS)
+  setup.js         -- Interactive setup wizard (Android: emulator/USB/WiFi/Termux + iOS)
   termux-api.js    -- Termux:API: SMS, calls, location, camera, clipboard (no ADB)
   termux.js        -- Termux detection + localhost ADB setup helper
   usbmux.js        -- Node.js usbmuxd client for iOS USB connection
@@ -332,7 +332,7 @@ Tracks WDA signing timestamp (written by `baremobile ios resign`). Warns when ce
 
 Interactive setup for both platforms. `baremobile setup` detects what is already configured and guides through remaining steps.
 
-- Android: check ADB in PATH, check device connected
+- Android: sub-menu with 4 modes — Emulator (SDK install + AVD creation + boot), USB (device detection with unauthorized/offline handling), WiFi (TCP/IP connect), Termux (on-device guide). `ensureAdb()` installs adb via package manager. `ensureSdk()` installs full SDK for emulator use. `findSdkRoot()` and `findSdkTool()` locate existing SDK installations.
 - iOS: check pymobiledevice3, USB device, developer mode, WDA installed, tunnel running, verify WDA connection
 - `restartWda()` — non-interactive WDA restart for auto-recovery. Two-tier: tier-1 reads stored RSD addr/port from PID file, restarts just WDA+forward in ~3s without pkexec; tier-2 falls back to full tunnel restart if RSD missing or tunnel dead. Called by MCP server on second iOS connection failure.
 - PID file (`/tmp/baremobile-ios-pids`) stores tunnel/WDA/forward PIDs on line 1, RSD addr/port on line 2. `loadPids()` is backward-compatible with legacy 1-line format.
@@ -430,7 +430,7 @@ multis has a skill system using bare-agent for LLM tool calling. baremobile's ba
 
 ## Tests
 
-~179 tests (unit + integration). Run all:
+~186 tests (unit + integration). Run all:
 
 ```bash
 node --test test/unit/*.test.js test/integration/*.test.js
@@ -449,7 +449,7 @@ Test files:
 | `test/unit/ios.test.js` | translateWda, prune pipeline, CLASS_MAP, keyboard/Unicode/path stripping, accessible attr refs, scale factor |
 | `test/unit/usbmux.test.js` | usbmuxd protocol, proxy |
 | `test/unit/mcp.test.js` | MCP server tools |
-| `test/unit/setup.test.js` | Setup wizard helpers, loadPids format parsing |
+| `test/unit/setup.test.js` | Setup wizard helpers, loadPids format parsing, findSdkRoot, findSdkTool |
 | `test/unit/cli.test.js` | CLI argument parsing |
 | `test/integration/connect.test.js` | End-to-end against emulator |
 | `test/integration/cli.test.js` | CLI session lifecycle |

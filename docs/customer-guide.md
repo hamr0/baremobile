@@ -48,6 +48,26 @@ Modules 1 and 2 are the same API — one runs on a host machine, the other on th
 
 ### Setup (one-time)
 
+Run the interactive setup wizard — it handles adb install, SDK setup, and device connection:
+
+```bash
+baremobile setup    # choose Android → pick your connection mode
+```
+
+**4 connection modes:**
+
+| Mode | Use case | What the wizard does |
+|------|----------|---------------------|
+| **Emulator** | QA/testing without a phone | Installs SDK (~3GB), creates AVD, launches emulator |
+| **USB** | QA/testing with a phone | Checks adb, guides USB debugging setup, detects device |
+| **WiFi** | Personal assistant | Guides `adb tcpip` setup or direct IP connect |
+| **Termux** | Autonomous on-device agent | Guides Termux package install + wireless debugging |
+
+**Minimum version:** Android 10+ (2019 or newer).
+
+**Emulator note:** The emulator uses Google APIs system image (includes Play Store for app installs).
+
+**Manual setup** (if you prefer):
 1. Install [Android SDK platform-tools](https://developer.android.com/tools/releases/platform-tools) (puts `adb` in PATH)
 2. On the phone: Settings > About phone > tap "Build number" 7 times > enable USB debugging
 3. Connect USB, tap "Allow" on the debugging prompt

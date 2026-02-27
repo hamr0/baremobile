@@ -320,7 +320,7 @@ page.close();
 
 ### Setup
 ```bash
-baremobile setup           # interactive wizard — handles everything
+baremobile setup           # interactive wizard — Android (emulator/USB/WiFi/Termux) + iOS
 baremobile ios resign      # re-sign WDA when cert expires (every 7 days)
 baremobile ios teardown    # kill tunnel/WDA processes
 ```

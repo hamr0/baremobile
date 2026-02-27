@@ -17,7 +17,7 @@ src/
 ├── ios.js        — iOS API: connect(opts) → page object (WDA over HTTP)
 ├── usbmux.js     — Node.js usbmuxd client for iOS USB connection
 ├── ios-cert.js   — WDA cert expiry tracking (7-day free Apple ID certs)
-└── setup.js      — Unified setup wizard: Android, iOS from scratch, start WDA, resign cert, teardown
+└── setup.js      — Unified setup wizard: Android (emulator/USB/WiFi/Termux), iOS from scratch, start WDA, resign cert, teardown
 
 mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 11 tools, dual-platform (Android + iOS)
 ```
@@ -56,7 +56,7 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 11 tools, dual-platfo
 
 ## Tests
 
-179 unit tests + integration tests. All passing.
+186 unit tests + integration tests. All passing.
 
 Run: `node --test test/unit/*.test.js test/integration/*.test.js`
 
