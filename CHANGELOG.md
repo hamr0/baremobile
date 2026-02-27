@@ -1,5 +1,25 @@
 # Changelog
 
+## 0.7.3
+
+Setup wizard hardening — graceful error handling, AltServer anisette fallback, output filtering.
+
+### Fixed
+- **pkexec cancel**: `waitForOutput()` now listens for process `close` event. Cancelled pkexec rejects instantly instead of waiting 20s timeout. Shows "authentication was cancelled" instead of raw error dump.
+- **AltServer 502**: Anisette server `armconverter.com` returns 502 intermittently. Setup now auto-retries with `ani.sidestore.io` fallback. Configurable via `ALTSERVER_ANISETTE_SERVER` env var.
+- **AltServer cached 2FA**: When Apple session is cached (no 2FA needed), AltServer installs directly. Setup now detects "successfully installed" as success, skips 2FA prompt.
+- **AltServer wrong password**: Shows "Double-check your Apple ID email and password" instead of generic server error.
+- **AltServer noise**: Filters debug output (signing progress floats, byte dumps, anisette headers, file writes). Only shows: Installing, 2FA prompt, Finished, errors.
+- **AltServer stale processes**: Kills leftover AltServer processes before each signing attempt.
+- **WDA untrusted profile**: Detects "not been explicitly trusted" error, prompts user to trust cert, retries WDA launch without redoing tunnel/DDI/forward.
+- **Setup hangs on exit**: `unref()` WDA/tunnel child stdio pipes and usbmux forward server so Node exits cleanly.
+- **Integration tests fail without device**: `cli.test.js` now skips with "No ADB device available" (same as `connect.test.js`).
+
+### Changed
+- **Setup step reorder**: WDA install (step 6) now happens before device settings (step 7). Developer Mode toggle only appears after a dev app is installed, so checking it first was wrong.
+- **Device settings consolidated**: Developer Mode + VPN trust + UI Automation shown as numbered checklist in one step with clear paths to each setting.
+- **Step count**: iOS setup reduced from 10 to 9 steps.
+
 ## 0.7.2
 
 - **fix**: `findWdaBundle()` ENOBUFS — `pymobiledevice3 apps list` returns ~3.5MB JSON, exceeded default 1MB `maxBuffer`. Increased to 10MB.

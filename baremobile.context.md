@@ -364,6 +364,38 @@ baremobile setup     # pick option 2 (from scratch) or 3 (start WDA server)
 baremobile ios teardown  # kill all bridge processes
 ```
 
+#### iOS setup steps (option 2: from scratch)
+1. Detect host OS (Linux/macOS/WSL + package manager)
+2. Check pymobiledevice3 (with install guidance per OS)
+3. Check AltServer (`.wda/AltServer`)
+4. Check libdns_sd / mDNS
+5. Check USB device (prompts to connect if missing)
+6. Sign & install WDA via AltServer (Apple ID + 2FA, anisette fallback)
+7. Device settings checklist:
+   - [1] Developer Mode: Settings > Privacy & Security > Developer Mode > ON
+   - [2] Trust profile: Settings > General > VPN & Device Management > Trust
+   - [3] UI Automation: Settings > Developer > Enable UI Automation > ON
+8. Start WDA server (tunnel + DDI mount + WDA launch + port forward)
+9. Final verification (`/status` health check)
+
+#### iOS setup steps (option 3: start WDA server only)
+For when WDA is already installed and device settings are configured.
+Steps: USB check → tunnel (pkexec) → DDI mount → WDA launch → port forward → verify
+
+#### Prerequisites
+| Requirement | Install |
+|-------------|---------|
+| pymobiledevice3 | `pip install --user pymobiledevice3` |
+| AltServer-Linux | Download from GitHub, place at `.wda/AltServer` |
+| WebDriverAgent.ipa | Place at `.wda/WebDriverAgent.ipa` |
+| libdns_sd | `dnf install avahi-compat-libdns_sd-devel` (Fedora) / `apt install libavahi-compat-libdnssd-dev` (Ubuntu) |
+| Apple ID | Free account works (7-day cert, re-sign weekly via `baremobile ios resign`) |
+
+#### Environment variables
+| Variable | Purpose |
+|----------|---------|
+| `ALTSERVER_ANISETTE_SERVER` | Override anisette server URL (fallback: `ani.sidestore.io`) |
+
 ## MCP Server Integration
 
 baremobile includes an MCP server (`mcp-server.js`) for Claude Code and other MCP clients.

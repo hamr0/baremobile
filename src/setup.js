@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
 
 const PID_FILE = '/tmp/baremobile-ios-pids';
+const ANISETTE_FALLBACK = 'https://ani.sidestore.io';
 
 // --- Host detection ---
 
@@ -115,20 +116,105 @@ function pmd3Bg(args, opts = {}) {
 function waitForOutput(child, regex, timeoutMs = 15000) {
   return new Promise((resolve, reject) => {
     let output = '';
+    let done = false;
+    const finish = (err) => { if (!done) { done = true; clearTimeout(timer); reject(err); } };
     const onData = (d) => {
       output += d.toString();
       const m = output.match(regex);
-      if (m) {
+      if (m && !done) {
+        done = true;
         clearTimeout(timer);
         resolve(output);
       }
     };
     child.stdout.on('data', onData);
     child.stderr.on('data', onData);
+    child.on('close', (code) => {
+      finish(new Error(`Process exited (code ${code}): ${output.slice(0, 200)}`));
+    });
     const timer = setTimeout(() => {
-      reject(new Error(`Timed out waiting for ${regex} (got: ${output.slice(0, 200)})`));
+      finish(new Error(`Timed out waiting for ${regex} (got: ${output.slice(0, 200)})`));
     }, timeoutMs);
   });
+}
+
+/**
+ * Spawn AltServer and wait for 2FA prompt or error.
+ * Returns { child, output } on success (ready for 2FA), or null on failure.
+ * Automatically retries with fallback anisette server on 502.
+ */
+async function spawnAltServer(ui, altserver, args) {
+  // Kill stale AltServer from previous attempts
+  try { execFileSync('pkill', ['-f', 'AltServer'], { stdio: 'pipe' }); } catch { /* none running */ }
+
+  const AUTH_ERROR = /Incorrect Content-Type|Could not install|Alert:.*Could not/i;
+  const TWO_FA_READY = /enter two factor|enter.*2fa/i;
+  const INSTALL_OK = /successfully installed|Finished!/i;
+  const is502 = (s) => /status code: 502|anisette/i.test(s);
+
+  // Only show meaningful AltServer lines — everything else is debug noise
+  const SHOW = /^(Installing app|Requires two factor|Enter two factor|Finished|successfully installed|Could not install|Alert:|Failed to|error:)/i;
+
+  function tryOnce(env) {
+    const child = spawn(altserver, args, { stdio: ['pipe', 'pipe', 'pipe'], env });
+    let output = '';
+    let exitCode = null;
+    const closed = new Promise((r) => child.on('close', (code) => { exitCode = code; r(code); }));
+    const collect = (d) => {
+      const s = d.toString();
+      output += s;
+      for (const line of s.split('\n')) {
+        const trimmed = line.trim();
+        if (trimmed && SHOW.test(trimmed)) ui.write('   ' + trimmed + '\n');
+      }
+    };
+    child.stdout.on('data', collect);
+    child.stderr.on('data', collect);
+
+    const done = new Promise((resolve) => {
+      let resolved = false;
+      const finish = (val) => { if (!resolved) { resolved = true; clearTimeout(timer); resolve(val); } };
+      const check = () => {
+        if (TWO_FA_READY.test(output)) return finish({ ok: true, needs2fa: true });
+        if (INSTALL_OK.test(output)) return finish({ ok: true, needs2fa: false });
+        if (AUTH_ERROR.test(output)) return finish({ ok: false });
+      };
+      child.stdout.on('data', check);
+      child.stderr.on('data', check);
+      child.on('close', () => finish({ ok: false }));
+      const timer = setTimeout(() => finish({ ok: false, timeout: true }), 30000);
+    });
+
+    return { child, done, closed, getOutput: () => output, getExitCode: () => exitCode };
+  }
+
+  // First attempt — default anisette server
+  let attempt = tryOnce({ ...process.env });
+  let result = await attempt.done;
+
+  if (!result.ok) {
+    try { attempt.child.kill(); } catch { /* ignore */ }
+    const output = attempt.getOutput();
+
+    // Retry with fallback if 502/anisette and user hasn't set their own
+    if (is502(output) && !process.env.ALTSERVER_ANISETTE_SERVER) {
+      ui.warn('Default anisette server failed (502). Retrying with fallback...');
+      attempt = tryOnce({ ...process.env, ALTSERVER_ANISETTE_SERVER: ANISETTE_FALLBACK });
+      result = await attempt.done;
+
+      if (!result.ok) {
+        try { attempt.child.kill(); } catch { /* ignore */ }
+        ui.fail('AltServer failed. Double-check your Apple ID email and password.');
+        return null;
+      }
+      return { child: attempt.child, output: attempt.getOutput, needs2fa: result.needs2fa, closed: attempt.closed };
+    }
+
+    ui.fail('AltServer failed. Double-check your Apple ID email and password.');
+    return null;
+  }
+
+  return { child: attempt.child, output: attempt.getOutput, needs2fa: result.needs2fa, closed: attempt.closed };
 }
 
 /**
@@ -381,32 +467,8 @@ export async function setupIos(ui) {
     ui.ok(`Device found: ${device.serial}`);
   }
 
-  // Step 6: Check Developer Mode
-  ui.step(6, 'Checking Developer Mode');
-  try {
-    const out = pmd3(['mounter', 'query-developer-mode-status']);
-    if (out.includes('true')) {
-      ui.ok('Developer Mode enabled');
-    } else {
-      ui.warn('Developer Mode may be OFF');
-      ui.write('   Enable: Settings > Privacy & Security > Developer Mode > ON\n');
-      ui.write('   (Requires device restart)\n');
-      await ui.waitForEnter('Once enabled');
-    }
-  } catch {
-    ui.warn('Could not check Developer Mode (enable it manually)');
-    ui.write('   Settings > Privacy & Security > Developer Mode > ON\n');
-    await ui.waitForEnter('Once enabled');
-  }
-
-  // Step 7: Check UI Automation
-  ui.step(7, 'UI Automation');
-  ui.write('   Verify: Settings > Developer > Enable UI Automation is ON\n');
-  await ui.waitForEnter('Once verified');
-  ui.ok('UI Automation confirmed by user');
-
-  // Step 8: Sign & install WDA
-  ui.step(8, 'Checking WDA installation');
+  // Step 6: Sign & install WDA
+  ui.step(6, 'Checking WDA installation');
   const bundle = findWdaBundle();
   if (bundle) {
     ui.ok(`WDA installed: ${bundle}`);
@@ -429,36 +491,51 @@ export async function setupIos(ui) {
     if (!password) { ui.fail('Password required.'); return; }
 
     ui.write('Starting AltServer...\n');
-    const child = spawn(altserver, [
-      '-u', device.serial,
-      '-a', email, '-p', password, wdaIpa,
-    ], { stdio: ['pipe', 'pipe', 'pipe'] });
+    const altArgs = ['-u', device.serial, '-a', email, '-p', password, wdaIpa];
+    const result = await spawnAltServer(ui, altserver, altArgs);
+    if (!result) return;
 
-    child.stdout.on('data', (d) => ui.write(d.toString()));
-    child.stderr.on('data', (d) => ui.write(d.toString()));
-
-    const twoFa = await ui.prompt('Enter 2FA code from your phone: ');
-    if (twoFa) child.stdin.write(twoFa + '\n');
-
-    const exitCode = await new Promise((r) => child.on('close', r));
+    if (result.needs2fa) {
+      const twoFa = await ui.prompt('Enter 2FA code from your phone: ');
+      if (twoFa) result.child.stdin.write(twoFa + '\n');
+    }
+    const exitCode = await result.closed;
     if (exitCode !== 0) {
-      ui.fail(`AltServer exited with code ${exitCode}`);
+      ui.fail(`AltServer failed. Output:\n${result.output().slice(-300)}`);
       return;
     }
     const { recordIosSigning } = await import('./ios-cert.js');
     recordIosSigning();
     ui.ok('WDA signed and installed');
-    ui.write('   Trust the developer profile on your device:\n');
-    ui.write('   Settings > General > VPN & Device Management > trust your Apple ID\n');
-    await ui.waitForEnter('Once trusted');
   }
 
-  // Step 9: Start WDA server
-  ui.step(9, 'Starting WDA server');
-  await startWda(ui, '9');
+  // Step 7: Device settings (Developer Mode + VPN trust + UI Automation)
+  ui.step(7, 'Device settings');
+  let devModeOk = false;
+  try {
+    const out = pmd3(['mounter', 'query-developer-mode-status']);
+    devModeOk = out.includes('true');
+  } catch { /* can't check */ }
 
-  // Step 10: Verify
-  ui.step(10, 'Final verification');
+  if (devModeOk) {
+    ui.ok('[1] Developer Mode: ON');
+  } else {
+    ui.warn('[1] Developer Mode: needs to be enabled');
+    ui.write('      Settings > Privacy & Security > Developer Mode > ON\n');
+    ui.write('      Device will restart. Confirm "Enable" after reboot.\n');
+  }
+  ui.write('   [2] Trust developer profile:\n');
+  ui.write('      Settings > General > VPN & Device Management > tap your Apple ID > Trust\n');
+  ui.write('   [3] Enable UI Automation:\n');
+  ui.write('      Settings > Developer > Enable UI Automation > ON\n');
+  await ui.waitForEnter('Once all three are done');
+
+  // Step 9: Start WDA server
+  ui.step(8, 'Starting WDA server');
+  await startWda(ui, '8');
+
+  // Step 9: Verify
+  ui.step(9, 'Final verification');
   try {
     const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
     const status = await res.json();
@@ -560,8 +637,13 @@ export async function startWda(ui, prefix) {
   try {
     tunnelOutput = await waitForOutput(tunnelChild, /RSD Port:\s*\d+/i, 20000);
   } catch (err) {
-    ui.fail(`Tunnel failed: ${err.message}`);
     try { tunnelChild.kill(); } catch { /* ignore */ }
+    if (/not authorized/i.test(err.message)) {
+      ui.fail('Tunnel requires elevated access — authentication was cancelled.');
+      ui.write('   Re-run setup and authenticate when prompted.\n');
+    } else {
+      ui.fail(`Tunnel failed: ${err.message}`);
+    }
     return;
   }
 
@@ -614,8 +696,9 @@ async def main():
 asyncio.run(main())
 `], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
 
-  wdaChild.stdout.on('data', (d) => ui.write(d.toString()));
-  wdaChild.stderr.on('data', (d) => ui.write(d.toString()));
+  let wdaOutput = '';
+  wdaChild.stdout.on('data', (d) => { wdaOutput += d.toString(); });
+  wdaChild.stderr.on('data', (d) => { wdaOutput += d.toString(); });
   ui.ok(`WDA launching (PID ${wdaChild.pid})...`);
 
   // Step 5: Port forward + verify
@@ -652,9 +735,14 @@ asyncio.run(main())
   // Save PIDs for teardown
   savePids(tunnelChild.pid, wdaChild.pid, process.pid);
 
-  // Unref so parent can exit without killing children
+  // Unref children + their pipes + forwarder so Node can exit
+  tunnelChild.stdout.unref();
+  tunnelChild.stderr.unref();
   tunnelChild.unref();
+  wdaChild.stdout.unref();
+  wdaChild.stderr.unref();
   wdaChild.unref();
+  if (fwdServer) fwdServer.unref();
 
   if (wdaReady) {
     ui.ok('WDA ready at http://localhost:8100');
@@ -662,10 +750,41 @@ asyncio.run(main())
     ui.write(`  WDA PID:    ${wdaChild.pid}\n`);
     ui.write(`  PIDs saved to ${PID_FILE}\n`);
     ui.write(`  To stop: baremobile ios teardown\n\n`);
+  } else if (/not been explicitly trusted|invalid.*code signature/i.test(wdaOutput)) {
+    ui.fail('WDA launch blocked — developer profile not trusted on device.');
+    ui.write('   Settings > General > VPN & Device Management > tap your Apple ID > Trust\n');
+    await ui.waitForEnter('Once trusted, press Enter to retry');
+    // Retry WDA launch only (tunnel + DDI + forward still alive)
+    try { wdaChild.kill(); } catch { /* ignore */ }
+    const retryChild = spawn(py, ['-c', `
+import asyncio
+from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+from pymobiledevice3.services.dvt.testmanaged.xcuitest import XCUITestService
+async def main():
+    rsd = RemoteServiceDiscoveryService(('${rsd.rsdAddr}', ${rsd.rsdPort}))
+    await rsd.connect()
+    XCUITestService(rsd).run('${bundle}')
+asyncio.run(main())
+`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+    retryChild.stdout.on('data', () => {});
+    retryChild.stderr.on('data', () => {});
+    ui.write('   Relaunching WDA...\n');
+    for (let i = 0; i < 3; i++) {
+      await new Promise(r => setTimeout(r, 2000));
+      try {
+        const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
+        const status = await res.json();
+        if (status.value?.ready) { wdaReady = true; break; }
+      } catch { /* retry */ }
+    }
+    savePids(tunnelChild.pid, retryChild.pid, process.pid);
+    retryChild.stdout.unref();
+    retryChild.stderr.unref();
+    retryChild.unref();
+    if (!wdaReady) ui.fail('WDA still not responding. Run: baremobile ios teardown && baremobile setup');
   } else {
     ui.fail('WDA not responding after 3 attempts');
-    ui.write('   Common fix: trust developer profile on device\n');
-    ui.write('   Settings > General > VPN & Device Management > Trust\n');
+    if (wdaOutput.trim()) ui.write(`   ${wdaOutput.trim().split('\n').pop()}\n`);
   }
 }
 
@@ -709,20 +828,17 @@ export async function renewCert(ui) {
 
   const wdaIpa = resolve('.wda/WebDriverAgent.ipa');
   ui.write('Starting AltServer...\n');
-  const child = spawn(altserver, [
-    '-u', device.serial,
-    '-a', email, '-p', password, wdaIpa,
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
+  const altArgs = ['-u', device.serial, '-a', email, '-p', password, wdaIpa];
+  const result = await spawnAltServer(ui, altserver, altArgs);
+  if (!result) return;
 
-  child.stdout.on('data', (d) => ui.write(d.toString()));
-  child.stderr.on('data', (d) => ui.write(d.toString()));
-
-  const twoFa = await ui.prompt('Enter 2FA code from your phone: ');
-  if (twoFa) child.stdin.write(twoFa + '\n');
-
-  const exitCode = await new Promise((r) => child.on('close', r));
+  if (result.needs2fa) {
+    const twoFa = await ui.prompt('Enter 2FA code from your phone: ');
+    if (twoFa) result.child.stdin.write(twoFa + '\n');
+  }
+  const exitCode = await result.closed;
   if (exitCode !== 0) {
-    ui.fail(`AltServer exited with code ${exitCode}. Check output above.`);
+    ui.fail(`AltServer failed. Output:\n${result.output().slice(-300)}`);
     return;
   }
 

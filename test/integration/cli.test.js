@@ -12,6 +12,15 @@ import { existsSync, readFileSync, rmSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { tmpdir } from 'node:os';
 import { mkdtempSync } from 'node:fs';
+import { listDevices } from '../../src/adb.js';
+
+let hasDevice = false;
+try {
+  const devices = await listDevices();
+  hasDevice = devices.length > 0;
+} catch {
+  hasDevice = false;
+}
 
 const CLI = resolve(import.meta.dirname, '..', '..', 'cli.js');
 const NODE = process.execPath;
@@ -25,7 +34,7 @@ function cli(args, opts = {}) {
   }).trim();
 }
 
-describe('CLI session (integration)', () => {
+describe('CLI session (integration)', { skip: !hasDevice && 'No ADB device available' }, () => {
   const tmpDir = mkdtempSync(join(tmpdir(), 'baremobile-cli-int-'));
   const sessionDir = join(tmpDir, '.baremobile');
 
