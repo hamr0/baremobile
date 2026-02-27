@@ -1,6 +1,6 @@
 # baremobile — Agent Integration Guide
 
-Use this file as context when building agents that control Android devices via baremobile.
+Use this file as context when building agents that control Android/iOS devices via baremobile.
 
 ## Core Loop
 
@@ -267,55 +267,21 @@ if (await api.isAvailable()) {
 
 Termux:API is **not** screen control — it's direct Android API access. Use it for SMS, calls, location, camera, clipboard. Faster and more reliable than tapping through the UI.
 
-### Three levels of control
+## iOS (WDA-based)
 
-| Level | ADB? | Screen? | Example |
-|-------|------|---------|---------|
-| **Termux:API** | No | No | "Send a text", "what's my battery" |
-| **ADB (from host)** | USB/WiFi | Yes | QA testing, development |
-| **ADB (from Termux)** | localhost | Yes | Autonomous agent on phone |
-
-## Device Setup (ADB from host)
-
-```bash
-# Check device connected
-adb devices
-
-# Start emulator (if using Android Studio)
-emulator -avd Pixel_8_API_35 -no-window  # headless
-
-# Install an app
-adb install path/to/app.apk
-
-# Forward port (for future WebView CDP)
-adb forward tcp:9222 localabstract:chrome_devtools_remote
-```
-
-## iOS (WDA-based — same pattern as Android)
-
-baremobile controls iPhones via WebDriverAgent (WDA) over HTTP. Same `snapshot()` → `tap(ref)` pattern as Android — hierarchical accessibility tree with `[ref=N]` markers, coordinate-based tap, type, scroll, screenshots. Translation layer converts WDA XML into Android node shape, then shared `prune()` + `formatTree()` pipeline produces identical YAML output.
-
-### Architecture
-
-```
-WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
-                                                          (shared with Android)
-```
-
-Setup uses pymobiledevice3 (Python 3.12) for tunnel + DDI mount + WDA launch. Port forwarding handled by Node.js usbmux client (`src/usbmux.js`, replaces flaky pymobiledevice3 forwarder). Zero Python at runtime. `connect()` auto-discovers WDA via cached WiFi > USB proxy > localhost.
+Same `snapshot()` / `tap(ref)` pattern as Android. WDA XML is translated into the shared prune/format pipeline, producing identical YAML output.
 
 ### Quick start
-
 ```js
 import { connect } from 'baremobile/src/ios.js';
 
 const page = await connect();
-console.log(await page.snapshot());   // hierarchical YAML with [ref=N] markers
-await page.tap(1);                    // coordinate tap via bounds center
-await page.type(2, 'hello');          // coordinate tap to focus + WDA keys
+console.log(await page.snapshot());
+await page.tap(1);
+await page.type(2, 'hello');
 await page.launch('com.apple.Preferences');
-await page.back();                    // find back button in refMap or swipe-from-left
-await page.screenshot();              // PNG buffer
+await page.back();
+await page.screenshot();
 page.close();
 ```
 
@@ -323,94 +289,53 @@ page.close();
 
 | Method | What it does |
 |--------|-------------|
-| `page.snapshot()` | WDA `/source` → `translateWda()` → `prune()` → `formatTree()` → hierarchical YAML |
-| `page.tap(ref)` | Coordinate tap at bounds center (x, y) |
-| `page.type(ref, text, opts)` | Coordinate tap to focus → WDA keys. `{clear: true}` to clear first |
-| `page.scroll(ref, direction)` | Coordinate-based swipe within element bounds (up/down/left/right) |
+| `page.snapshot()` | Hierarchical YAML (same format as Android) |
+| `page.tap(ref)` | Coordinate tap at bounds center |
+| `page.type(ref, text, opts)` | Tap to focus + WDA keys. `{clear: true}` to clear first |
+| `page.scroll(ref, direction)` | Swipe within element bounds (up/down/left/right) |
 | `page.swipe(x1, y1, x2, y2, duration)` | Raw swipe between coordinates |
-| `page.longPress(ref)` | W3C pointer action at bounds center with 1s pause |
-| `page.tapXY(x, y)` | Tap by pixel coordinates (vision fallback) |
-| `page.back()` | Search refMap for back button, fallback to swipe-from-left-edge |
-| `page.home()` | WDA `/wda/homescreen` |
+| `page.longPress(ref)` | Long press at bounds center (1s) |
+| `page.tapXY(x, y)` | Tap by pixel coordinates |
+| `page.back()` | Find back button in refMap, fallback to swipe-from-left-edge |
+| `page.home()` | WDA homescreen |
 | `page.launch(bundleId)` | Launch app by bundle ID |
-| `page.screenshot()` | WDA `/screenshot` → PNG buffer |
+| `page.screenshot()` | PNG buffer |
 | `page.waitForText(text, timeout)` | Poll snapshot until text appears |
-| `page.press(key)` | Hardware buttons: `home`, `volumeup`, `volumedown` |
-| `page.unlock(passcode)` | Unlock device with passcode. Throws if passcode required but not provided, or wrong passcode. |
-| `page.close()` | Close the connection and clean up resources |
+| `page.press(key)` | `home`, `volumeup`, `volumedown` only |
+| `page.unlock(passcode)` | Unlock device (throws if wrong passcode) |
+| `page.close()` | Close connection and clean up |
 
 ### Key differences from Android
 - **Bundle IDs, not package names** — `com.apple.Preferences` not `com.android.settings`
 - **No intents** — use `page.launch(bundleId)` for app navigation
 - **No grid/tapGrid** — coordinate tap from bounds is reliable
 - **Back is semantic** — searches refMap for back button, falls back to swipe gesture
-- **Same hierarchical YAML** — shared `prune()` + `formatTree()` pipeline, identical output format
 - **press() is limited** — only `home`, `volumeup`, `volumedown`. Use `tap(ref)` for UI buttons.
 
 ### Requirements
-
-| Requirement | Why |
-|------------|-----|
-| WDA on device | Signed with free Apple ID (7-day cert, re-sign weekly via AltServer-Linux) |
-| pymobiledevice3 | Setup only — tunnel, DDI mount, WDA launch. Python 3.12. |
-| USB cable (required) | WiFi tunnel requires Mac/Xcode for WiFi pairing — not possible on Linux |
-| Developer Mode on iPhone | Required for developer services |
+- **WDA on device** — signed with free Apple ID (7-day cert, re-sign weekly)
+- **pymobiledevice3** — setup only (tunnel, DDI mount, WDA launch). Python 3.12.
+- **USB cable required** — WiFi tunnel needs Mac/Xcode, not possible on Linux
+- **Developer Mode on iPhone** — required for developer services
 
 ### Setup
 ```bash
-# Interactive wizard (guides through all steps, cross-platform):
-baremobile setup     # pick option 2 (from scratch) or 3 (start WDA server)
-# When done:
-baremobile ios teardown  # kill all bridge processes
+baremobile setup           # interactive wizard — handles everything
+baremobile ios resign      # re-sign WDA when cert expires (every 7 days)
+baremobile ios teardown    # kill tunnel/WDA processes
 ```
 
-#### iOS setup steps (option 2: from scratch)
-1. Detect host OS (Linux/macOS/WSL + package manager)
-2. Check pymobiledevice3 (with install guidance per OS)
-3. Check AltServer (`.wda/AltServer`)
-4. Check libdns_sd / mDNS
-5. Check USB device (prompts to connect if missing)
-6. Sign & install WDA via AltServer (Apple ID + 2FA, anisette fallback)
-7. Device settings checklist:
-   - [1] Developer Mode: Settings > Privacy & Security > Developer Mode > ON
-   - [2] Trust profile: Settings > General > VPN & Device Management > Trust
-   - [3] UI Automation: Settings > Developer > Enable UI Automation > ON
-8. Start WDA server (tunnel + DDI mount + WDA launch + port forward)
-9. Final verification (`/status` health check)
+## MCP Server
 
-#### iOS setup steps (option 3: start WDA server only)
-For when WDA is already installed and device settings are configured.
-Steps: USB check → tunnel (pkexec) → DDI mount → WDA launch → port forward → verify
+MCP server (`mcp-server.js`) for Claude Code and other MCP clients.
 
-#### Prerequisites
-| Requirement | Install |
-|-------------|---------|
-| pymobiledevice3 | `pip install --user pymobiledevice3` |
-| AltServer-Linux | Download from GitHub, place at `.wda/AltServer` |
-| WebDriverAgent.ipa | Place at `.wda/WebDriverAgent.ipa` |
-| libdns_sd | `dnf install avahi-compat-libdns_sd-devel` (Fedora) / `apt install libavahi-compat-libdnssd-dev` (Ubuntu) |
-| Apple ID | Free account works (7-day cert, re-sign weekly via `baremobile ios resign`) |
-
-#### Environment variables
-| Variable | Purpose |
-|----------|---------|
-| `ALTSERVER_ANISETTE_SERVER` | Override anisette server URL (fallback: `ani.sidestore.io`) |
-
-## MCP Server Integration
-
-baremobile includes an MCP server (`mcp-server.js`) for Claude Code and other MCP clients.
-
-### Setup
 ```bash
-# Add to Claude Code
 claude mcp add baremobile -- node /path/to/baremobile/mcp-server.js
-
-# Or use .mcp.json in the project root (auto-detected)
 ```
 
 ### Tools (10, dual-platform)
 
-All tools accept optional `platform: "android" | "ios"` (default: android). Both platforms can be used in the same session.
+All tools accept optional `platform: "android" | "ios"` (default: android).
 
 | Tool | Params | Returns |
 |------|--------|---------|
@@ -422,34 +347,20 @@ All tools accept optional `platform: "android" | "ios"` (default: android). Both
 | `swipe` | `x1`, `y1`, `x2`, `y2`, `duration?`, `platform?` | `'ok'` |
 | `long_press` | `ref`, `platform?` | `'ok'` |
 | `launch` | `pkg`, `platform?` | `'ok'` |
-| `screenshot` | `platform?` | base64 PNG (image content type) |
+| `screenshot` | `platform?` | base64 PNG |
 | `back` | `platform?` | `'ok'` |
 
-iOS cert warning: if WDA cert is >6 days old or missing, warning is prepended to the first iOS snapshot.
+Action tools return `'ok'` — call `snapshot` to observe the result. Large snapshots saved to `.baremobile/screen-{timestamp}.yml` when exceeding `maxChars` (default 30,000). iOS cert warning prepended to first snapshot if cert is >6 days old.
 
-### Convention
-Action tools return `'ok'` — call `snapshot` to observe the result. This matches the barebrowse MCP pattern.
+## CLI
 
-### Output artifacts
-Large snapshots saved to `.baremobile/screen-{timestamp}.yml` when exceeding `maxChars` (default 30,000).
-
-## CLI Session Mode
-
-baremobile includes a CLI for session-based control — start a daemon, issue commands, inspect output files. Useful for shell scripting, Claude Code integration, and JSONL-consumable automation.
+Session-based control for shell scripting and automation.
 
 ### Session lifecycle
 ```bash
 baremobile open [--device=SERIAL] [--platform=android|ios]
-                                     # start daemon, writes session.json
-baremobile status                    # check if session is alive
-baremobile close                     # shut down daemon, clean up
-```
-
-### Setup & iOS management
-```bash
-baremobile setup                     # interactive setup wizard (Android or iOS)
-baremobile ios resign                # re-sign WDA cert (7-day Apple free cert)
-baremobile ios teardown              # kill iOS tunnel/WDA processes
+baremobile status
+baremobile close
 ```
 
 ### Commands
@@ -460,12 +371,12 @@ baremobile screenshot                # -> .baremobile/screenshot-*.png
 baremobile grid                      # screen grid info (for vision fallback)
 
 # Interaction
-baremobile tap <ref>                 # tap element by ref
-baremobile tap-xy <x> <y>          # tap by pixel coordinates
-baremobile tap-grid <cell>         # tap by grid cell (e.g. C5)
+baremobile tap <ref>
+baremobile tap-xy <x> <y>
+baremobile tap-grid <cell>
 baremobile type <ref> <text> [--clear]
-baremobile press <key>              # back, home, enter, ...
-baremobile scroll <ref> <direction> # up/down/left/right
+baremobile press <key>
+baremobile scroll <ref> <direction>
 baremobile swipe <x1> <y1> <x2> <y2> [--duration=N]
 baremobile long-press <ref>
 baremobile launch <pkg>
@@ -477,46 +388,26 @@ baremobile home
 baremobile wait-text <text> [--timeout=N]
 baremobile wait-state <ref> <state> [--timeout=N]
 
+# iOS management
+baremobile setup
+baremobile ios resign
+baremobile ios teardown
+
 # Logging
 baremobile logcat [--filter=TAG] [--clear]
 ```
 
 ### Output conventions
-All output goes to `.baremobile/` in the current directory:
-- `session.json` — daemon port + pid
-- `screen-TIMESTAMP.yml` — snapshots
-- `screenshot-TIMESTAMP.png` — screenshots
-- `logcat-TIMESTAMP.json` — logcat entries
-
-### Agent usage
-```bash
-# Start session, take snapshot, act, observe
-baremobile open
-baremobile launch com.android.settings
-sleep 2
-baremobile snapshot    # prints file path to stdout
-baremobile tap 4
-baremobile snapshot
-baremobile close
-```
-
-Action commands print `ok` on success. File-producing commands print the file path. Errors go to stderr with non-zero exit.
+All output goes to `.baremobile/` in the current directory. Action commands print `ok`. File-producing commands print the file path. Errors go to stderr with non-zero exit.
 
 ### JSON mode (`--json`)
-
-Add `--json` to any command for machine-readable output — one JSON line per command:
-
 ```bash
-baremobile open --json       # {"ok":true,"pid":1234,"port":40049,"outputDir":"/path/.baremobile"}
-baremobile snapshot --json   # {"ok":true,"file":"/path/.baremobile/screen-2026-02-24T19-41-01.yml"}
+baremobile open --json       # {"ok":true,"pid":1234,"port":40049}
+baremobile snapshot --json   # {"ok":true,"file":"/path/.baremobile/screen-*.yml"}
 baremobile tap 4 --json      # {"ok":true}
-baremobile logcat --json     # {"ok":true,"file":"/path/.baremobile/logcat-*.json","count":523}
-baremobile status --json     # {"ok":true,"pid":1234,"port":40049,"startedAt":"2026-02-24T19:40:45Z"}
-# errors:
 baremobile status --json     # {"ok":false,"error":"No session found."}
 ```
-
-Every response has `ok: true|false`. File-producing commands include `file`. Errors include `error`. Parse one line per invocation.
+Every response has `ok: true|false`. File-producing commands include `file`. Errors include `error`.
 
 ## Error Recovery
 

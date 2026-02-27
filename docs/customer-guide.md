@@ -19,31 +19,9 @@ No Appium. No Java server. No build step. Zero required dependencies.
 | 1 | **Core ADB** | Android | QA, automation | Full screen control — accessibility tree snapshots, tap/type/swipe by ref, screenshots, app lifecycle | `adb` in PATH, USB debugging enabled |
 | 2 | **Termux ADB** | Android | QA, autonomous agents | Same full screen control, but runs on the phone itself — no host machine needed | Termux app, wireless debugging |
 | 3 | **Termux:API** | Android | QA, autonomous agents | Direct Android APIs — SMS, calls, location, camera, clipboard, contacts, notifications. No screen control. | Termux + Termux:API app |
-| 4 | **iOS (WebDriverAgent)** | iOS | QA/testing only | Same `snapshot()` → `tap(ref)` as Android. Real accessibility tree via WDA, native element click, type, scroll, screenshots. Pure HTTP at runtime. Auto-discovery: WiFi (cached) > USB (usbmux.js) > localhost. | WDA on device, USB cable (required), Python 3.12 (setup only) |
+| 4 | **iOS (WDA)** | iOS | QA/testing only | Same `snapshot()` → `tap(ref)` as Android. Real accessibility tree via WDA, native element click, type, scroll, screenshots. | WDA on device, USB cable, Python 3.12 (setup only) |
 
-### How they relate
-
-```
-                        ┌─────────────────────────────────┐
-                        │         Your Agent / Code        │
-                        └──────────┬──────────────────────┘
-                                   │
-              ┌────────────────────┼────────────────────┐
-              │                    │                     │
-     ┌────────▼────────┐  ┌───────▼───────┐   ┌────────▼────────┐
-     │   Core ADB      │  │  Termux ADB   │   │   Termux:API    │
-     │  (from host)    │  │ (on device)   │   │  (on device)    │
-     │                 │  │               │   │                 │
-     │  Screen control │  │ Screen control│   │  SMS, calls,    │
-     │  + snapshots    │  │ + snapshots   │   │  location, etc  │
-     └────────┬────────┘  └───────┬───────┘   └────────┬────────┘
-              │                   │                     │
-              │  ADB over USB     │  ADB over localhost │  termux-* CLI
-              │  or WiFi          │  (wireless debug)   │  (no ADB)
-              │                   │                     │
-              └───────────────────┴─────────────────────┘
-                              Android Device
-```
+Modules 1 and 2 are the same API — one runs on a host machine, the other on the phone itself. Module 3 adds direct Android APIs (SMS, GPS, camera) and pairs with Module 2 for full autonomous agents. Module 4 brings the same ref-based pattern to iOS.
 
 ---
 
@@ -225,11 +203,11 @@ await page.launch('com.google.android.apps.maps');
 
 ## Module 4: iOS — WebDriverAgent (WDA)
 
-**Who it's for:** QA teams wanting iPhone control from Linux — no Mac, no Xcode. Same `snapshot()` → `tap(ref)` pattern as Android, backed by WDA over HTTP. Shared pruning pipeline — identical hierarchical YAML output.
+**Who it's for:** QA teams wanting iPhone control from Linux — no Mac, no Xcode at runtime. Same `snapshot()` / `tap(ref)` pattern as Android, backed by WDA over HTTP.
 
-**Status:** Full ref-based control — hierarchical accessibility tree, coordinate-based tap, type, scroll, swipe, screenshots, app lifecycle, unlock. All working. USB cable required (WiFi tunnel requires Mac/Xcode for pairing — not possible on Linux).
+**Status:** Full ref-based control working — accessibility tree, tap, type, scroll, swipe, screenshots, app lifecycle, unlock.
 
-**Important:** iOS is QA/testing only. Personal assistant use case requires Android (ADB WiFi works natively, no cable needed). iOS requires USB because the WDA process depends on a USB tunnel (RemoteXPC) that cannot be established without Xcode WiFi pairing.
+**Important:** iOS is QA/testing only. USB cable required — the WDA process depends on a USB tunnel (RemoteXPC) that cannot be established over WiFi without Xcode. For autonomous/personal-assistant use cases, use Android.
 
 ### What your agent can do
 
@@ -238,13 +216,12 @@ await page.launch('com.google.android.apps.maps');
 | **Read the screen** | `page.snapshot()` — hierarchical YAML with `[ref=N]` markers (same format as Android) |
 | **Tap elements** | `page.tap(1)` — coordinate tap at bounds center |
 | **Type text** | `page.type(2, 'hello')` — coordinate tap to focus + WDA keys |
-| **Navigate** | `page.back()` (searches refMap for back button), `page.home()` |
+| **Navigate** | `page.back()` (finds back button in NavBar), `page.home()` |
 | **Scroll** | `page.scroll(ref, 'down')` — coordinate-based swipe within bounds |
 | **Launch apps** | `page.launch('com.apple.Preferences')` — by bundle ID |
 | **Take screenshots** | `page.screenshot()` — PNG buffer |
 | **Wait for state** | `page.waitForText('Settings', 5000)` — poll until text appears |
-| **Vision fallback** | `page.tapXY(x, y)` — coordinate-based tap |
-| **Unlock device** | `page.unlock(passcode)` — unlock with passcode. Throws if passcode required but not provided, or wrong passcode. |
+| **Unlock device** | `page.unlock(passcode)` — unlock with passcode |
 
 ### Quick start
 
@@ -270,173 +247,62 @@ page.close();
 
 ### Architecture
 
+WDA XML is translated to a common node tree, then run through the same prune/format pipeline as Android — identical YAML output.
+
 ```
 WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
-                                                          (shared with Android)
-
-`baremobile setup` (option 3) starts:
-  1. USB tunnel (pymobiledevice3, elevated)
-  2. DDI mount (developer disk image)
-  3. WDA launch (XCUITestService)
-  4. Port forward (usbmux.js)
-
-connect() auto-discovers WDA:
-  1. Cached WiFi — /tmp/baremobile-ios-wifi → direct HTTP
-  2. USB — usbmux.js TCP proxy → get WiFi IP from /status → cache → switch to WiFi
-  3. Fallback — localhost:8100
-
-Port forwarding: Node.js usbmux client (src/usbmux.js) — replaces pymobiledevice3 forwarder.
 ```
 
-Translation layer + shared pipeline. `translateWda()` converts WDA XML attributes to Android node shape, then `prune()` assigns refs and `formatTree()` produces indented YAML. Actions use coordinate taps from node bounds — no predicate lookups, no WDA element search.
+Actions use coordinate taps derived from element bounds — no WDA predicate lookups. At runtime, all communication is pure HTTP to WDA. Python (pymobiledevice3) is only needed during setup for the USB tunnel, DDI mount, and WDA launch.
 
 ### Requirements
 
 | Requirement | Why |
 |------------|-----|
 | WDA on device | Signed with free Apple ID (7-day cert, re-sign weekly) |
-| pymobiledevice3 | Setup only — tunnel, DDI mount, WDA launch. Python 3.12. Zero Python at runtime. |
-| USB cable (required) | WiFi tunnel requires Mac/Xcode for WiFi pairing — not possible on Linux |
+| USB cable | WiFi tunnel requires Mac/Xcode — not possible on Linux |
 | Developer Mode on iPhone | Required for developer services |
+| pymobiledevice3 | Setup only — tunnel, DDI mount, WDA launch. Python 3.12. |
+| AltServer-Linux | Re-signing WDA cert (placed at `.wda/AltServer`) |
 
-**What you DON'T need:** No Mac, no Xcode, no Bluetooth adapter, no Python at runtime, no BLE pairing, no AssistiveTouch, no Full Keyboard Access.
+**What you DON'T need:** No Mac, no Xcode, no Bluetooth adapter, no Python at runtime.
 
 ### Setup
 
 ```bash
-# Interactive setup wizard (guides through all steps, cross-platform):
-baremobile setup          # 4 options: Android, iOS from scratch, start WDA, renew cert
-
-# Individual commands:
-baremobile ios resign     # re-sign WDA cert (7-day Apple free cert)
-baremobile ios teardown   # kill tunnel/WDA/forward processes
+baremobile setup              # interactive wizard — option 2 (iOS from scratch) or option 3 (start WDA)
+baremobile ios resign         # re-sign WDA cert (7-day Apple free cert, interactive)
+baremobile ios teardown       # kill tunnel/WDA/forward processes
 ```
 
-### Prerequisites
-
-| Requirement | Why |
-|------------|-----|
-| Apple developer account (free) | Signing WDA — free cert expires every 7 days |
-| USB-C or Lightning cable | Required on Linux (WiFi tunnel needs Mac/Xcode) |
-| pymobiledevice3 | Setup only — tunnel, DDI mount, WDA launch |
-| AltServer-Linux | Re-signing WDA cert (placed at `.wda/AltServer`) |
-
-### Re-signing WDA cert (every 7 days)
-
-Free Apple ID certs expire after 7 days. baremobile tracks this and warns you:
-
-```bash
-baremobile ios resign   # interactive: prompts for Apple ID, password, 2FA
-```
-
-The MCP server auto-warns when the cert is >6 days old — the warning appears in the first iOS snapshot.
-
-### CLI session (iOS)
-
-```bash
-baremobile open --platform=ios           # start iOS daemon
-baremobile snapshot                      # YAML tree with iOS elements
-baremobile tap 2                         # tap by ref
-baremobile launch com.apple.Preferences  # launch Settings
-baremobile close                         # shut down
-```
-
-### MCP usage (iOS)
-
-All MCP tools accept optional `platform: "ios"`:
-```
-snapshot({platform: 'ios'})    → iOS accessibility tree
-tap({ref: '2', platform: 'ios'}) → tap on iPhone
-snapshot()                      → Android (default)
-```
-
-Both platforms can be used in the same MCP session — each gets its own lazy connection.
+Free Apple ID certs expire after 7 days. The MCP server auto-warns when the cert is >6 days old.
 
 ---
 
-## CLI Session Mode
+## CLI and MCP
 
-All modules can also be driven from the command line via `npx baremobile`. The CLI starts a background daemon that holds an ADB session — same as the library, but controlled via shell commands.
+All modules are also available via CLI (`npx baremobile`) and MCP server. The CLI starts a background daemon that holds a device session. For iOS, all MCP tools accept `platform: "ios"`.
 
-### Quick start
-
-```bash
-npx baremobile open                         # start daemon
-npx baremobile launch com.android.settings  # open Settings
-sleep 2
-npx baremobile snapshot                     # prints .baremobile/screen-*.yml
-npx baremobile tap 4                        # tap element
-npx baremobile logcat                       # prints .baremobile/logcat-*.json
-npx baremobile close                        # shut down
-```
-
-### Full command reference
-
-| Category | Command | Description |
-|----------|---------|-------------|
-| Session | `open [--device=SERIAL] [--platform=android\|ios]` | Start daemon |
-| | `close` | Shut down daemon |
-| | `status` | Check if session is alive |
-| Screen | `snapshot` | ARIA snapshot → `.baremobile/screen-*.yml` |
-| | `screenshot` | PNG → `.baremobile/screenshot-*.png` |
-| | `grid` | Screen grid info (for vision fallback) |
-| Interaction | `tap <ref>` | Tap element by ref |
-| | `tap-xy <x> <y>` | Tap by pixel coordinates |
-| | `tap-grid <cell>` | Tap by grid cell (e.g. C5) |
-| | `type <ref> <text> [--clear]` | Type text into field |
-| | `press <key>` | Press key (back, home, enter, ...) |
-| | `scroll <ref> <direction>` | Scroll (up/down/left/right) |
-| | `swipe <x1> <y1> <x2> <y2> [--duration=N]` | Raw swipe |
-| | `long-press <ref>` | Long press element |
-| | `launch <pkg>` | Launch app by package name |
-| | `intent <action> [--extra-string key=val ...]` | Deep navigation |
-| | `back` | Press Android back |
-| | `home` | Press Android home |
-| Waiting | `wait-text <text> [--timeout=N]` | Poll until text appears |
-| | `wait-state <ref> <state> [--timeout=N]` | Poll until state matches |
-| Logging | `logcat [--filter=TAG] [--clear]` | Dump logcat → `.baremobile/logcat-*.json` |
-| Setup | `setup` | Interactive setup wizard |
-| | `ios resign` | Re-sign WDA cert (7-day Apple free cert) |
-| | `ios teardown` | Kill iOS tunnel/WDA processes |
-| MCP | `mcp` | Start MCP server (JSON-RPC over stdio) |
-
-### Output conventions
-
-All output goes to `.baremobile/` in the current directory. Action commands print `ok` to stdout. File-producing commands print the file path. Errors go to stderr with non-zero exit code.
-
-### JSON mode for agents
-
-Add `--json` to any command for machine-readable output — one JSON line per command:
-
-```bash
-baremobile open --json       # {"ok":true,"pid":1234,"port":40049,"outputDir":"..."}
-baremobile snapshot --json   # {"ok":true,"file":".baremobile/screen-*.yml"}
-baremobile tap 4 --json      # {"ok":true}
-baremobile logcat --json     # {"ok":true,"file":"...","count":523}
-# errors:
-baremobile status --json     # {"ok":false,"error":"No session found."}
-```
-
-Every response has `ok: true|false`. File-producing commands include `file`. Errors include `error`. Agents parse one line per invocation — no text formatting to strip.
+See the [README](../README.md) for the full CLI command reference.
 
 ---
 
 ## Choosing the Right Module
 
 ### "I want to automate Android UI testing from my laptop"
-→ **Core ADB.** Connect via USB, run tests from your machine.
+-> **Core ADB.** Connect via USB, run tests from your machine.
 
 ### "I want an AI agent that lives on the phone and acts autonomously"
-→ **Termux ADB + Termux:API.** Screen control + direct Android APIs, no host needed.
+-> **Termux ADB + Termux:API.** Screen control + direct Android APIs, no host needed.
 
 ### "I just need to send SMS or read GPS from code"
-→ **Termux:API.** No screen control needed, direct API access.
+-> **Termux:API.** No screen control needed, direct API access.
 
 ### "I want to test iOS apps from Linux"
-→ **iOS module.** WDA-based — real element tree, native click, type, scroll. Same `snapshot()` → `tap(ref)` pattern as Android. USB required.
+-> **iOS module.** WDA-based — real element tree, native click, type, scroll. Same `snapshot()` / `tap(ref)` pattern as Android. USB required.
 
 ### "I want cross-platform test suites"
-→ Core ADB for Android + iOS module for iPhone. Same agent, different devices.
+-> Core ADB for Android + iOS module for iPhone. Same agent, different devices.
 
 ---
 
@@ -468,5 +334,4 @@ Things your agent doesn't have to think about:
 
 - [Full API reference](../README.md#api)
 - [Product roadmap](01-product/prd.md)
-- [iOS details in PRD](01-product/prd.md) (Phase 2.7–3.0)
 - [Dev setup guide](04-process/dev-setup.md)
