@@ -544,10 +544,10 @@ export async function startWda(ui, prefix) {
     });
   }
 
-  // Wait for "tunnel created"
+  // Wait for RSD Port (last line of tunnel output — "tunnel created" arrives first but RSD lines follow)
   let tunnelOutput;
   try {
-    tunnelOutput = await waitForOutput(tunnelChild, /tunnel created/i, 20000);
+    tunnelOutput = await waitForOutput(tunnelChild, /RSD Port:\s*\d+/i, 20000);
   } catch (err) {
     ui.fail(`Tunnel failed: ${err.message}`);
     try { tunnelChild.kill(); } catch { /* ignore */ }
