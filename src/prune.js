@@ -1,4 +1,5 @@
 // Pruning pipeline: assign refs, collapse wrappers, drop empties, dedup
+export { isInternalName };
 
 /**
  * Prune a UI tree and assign refs to interactive nodes.
@@ -26,10 +27,16 @@ export function prune(root) {
   return { tree, refMap };
 }
 
+// Matches internal iOS/app class names: 3+ uppercase humps or contains underscore
+const INTERNAL_NAME_RE = /^[A-Z][a-zA-Z]*(?:[A-Z][a-zA-Z]*){2,}$|_/;
+function isInternalName(s) { return s && INTERNAL_NAME_RE.test(s.trim()); }
+
 function shouldKeep(node) {
   if (node.ref) return true;
-  if (node.text) return true;
-  if (node.contentDesc) return true;
+  const text = node.text && !isInternalName(node.text) ? node.text : '';
+  const desc = node.contentDesc && !isInternalName(node.contentDesc) ? node.contentDesc : '';
+  if (text) return true;
+  if (desc) return true;
   if (node.checked || node.selected || node.focused) return true;
   return false;
 }

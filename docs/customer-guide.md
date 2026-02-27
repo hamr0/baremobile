@@ -222,6 +222,7 @@ await page.launch('com.google.android.apps.maps');
 | **Take screenshots** | `page.screenshot()` — PNG buffer |
 | **Wait for state** | `page.waitForText('Settings', 5000)` — poll until text appears |
 | **Unlock device** | `page.unlock(passcode)` — unlock with passcode |
+| **Find by text** | `page.findByText('Melanie')` — returns ref for a text match (no device call) |
 
 ### Quick start
 
@@ -247,13 +248,13 @@ page.close();
 
 ### Architecture
 
-WDA XML is translated to a common node tree, then run through the same prune/format pipeline as Android — identical YAML output.
+WDA XML is translated to a common node tree, then run through the same prune/format pipeline as Android — identical YAML output. Snapshot cleanup: keyboard subtrees stripped (agent uses `type()`), Unicode directional markers removed, iOS file paths stripped, internal class names filtered.
 
 ```
-WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
+WDA XML  →  translateWda()  →  cleanText + strip keyboard/paths  →  node tree  →  prune()  →  formatTree()  →  YAML
 ```
 
-Actions use W3C Actions API touch sequences at element bound coordinates — more reliable than WDA's `/wda/tap` endpoint, which silently fails on some elements. At runtime, all communication is pure HTTP to WDA. Python (pymobiledevice3) is only needed during setup for the USB tunnel, DDI mount, and WDA launch. The MCP server auto-reconnects if WDA dies mid-session.
+Actions use W3C Actions API touch sequences at element bound coordinates — more reliable than WDA's `/wda/tap` endpoint, which silently fails on some elements. At runtime, all communication is pure HTTP to WDA. Python (pymobiledevice3) is only needed during setup for the USB tunnel, DDI mount, and WDA launch. The MCP server auto-reconnects if WDA dies mid-session, and auto-restarts the full WDA tunnel on second failure (no manual `baremobile setup` needed).
 
 ### Requirements
 
@@ -328,7 +329,8 @@ See the [README](../README.md) for the full CLI command reference.
 
 Things your agent doesn't have to think about:
 
-- **Bloated UI trees** — 4-step pruning: collapse wrappers, drop empty nodes, dedup list items
+- **Bloated UI trees** — 4-step pruning: collapse wrappers, drop empty nodes, dedup list items, filter internal class names
+- **iOS snapshot noise** — keyboard subtrees stripped, Unicode directional markers removed, file paths cleaned
 - **200+ Android widget classes** — mapped to 27 simple roles (Button, Text, TextInput, Image...)
 - **Text input quirks** — API 35+ space handling, shell character escaping
 - **Binary output corruption** — `exec-out` for clean PNG bytes

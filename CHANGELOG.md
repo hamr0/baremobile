@@ -1,5 +1,26 @@
 # Changelog
 
+## 0.7.5
+
+iOS snapshot cleanup and WDA tunnel auto-restart.
+
+### New
+- **Keyboard subtree stripping**: `translateWda()` skips `XCUIElementTypeKeyboard` subtrees entirely — eliminates ~40 key elements when keyboard is open. Agent uses `type()` instead.
+- **Unicode noise stripping**: New `cleanText()` removes RTL/LTR marks (`\u200E`, `\u200F`), directional isolates (`\u2068`/`\u2069`), zero-width spaces (`\u200B`), and BOM (`\uFEFF`) from labels. WhatsApp text is now clean.
+- **iOS file path stripping**: Removes `/var/mobile/...` and `/private/var/mobile/...` paths from snapshot text. Profile photo paths no longer waste 120 chars per occurrence.
+- **Internal name filter**: `shouldKeep()` in prune.js now ignores camelCase class names with 3+ humps or underscores (e.g. `AdditionalDimmingOverlay`, `ChatScreen_WallpaperView`). These collapse as empty wrappers instead of being kept as text.
+- **`findByText(text)`**: New page object method on both Android and iOS — looks up refMap for a text/contentDesc substring match, returns ref number. Zero device calls.
+- **`find_by_text` MCP tool**: New tool (11 total) — returns ref number for a text match from the last snapshot.
+- **WDA tunnel auto-restart**: `restartWda()` exported from setup.js. MCP server auto-restarts WDA tunnel on second iOS connection failure — kills stale processes, starts tunnel/DDI/WDA/forward non-interactively. Falls back to actionable error message if restart fails.
+
+### Changed
+- `cleanText()` replaces `decodeEntities()` in ios.js — handles XML entities, Unicode noise, and file paths in one pass.
+- MCP server now has 11 tools (was 10).
+- `isInternalName()` exported from prune.js for testing.
+
+### Tests
+- 168 unit tests (up from 148). New: keyboard stripping (3), Unicode noise (3), file path stripping (3), findByText (1), internal name filter (8), MCP find_by_text (1), API completeness updated.
+
 ## 0.7.4
 
 iOS navigation fixes — tap, back, launch, and WDA resilience.

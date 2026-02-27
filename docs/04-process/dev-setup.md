@@ -8,7 +8,7 @@
 node --test test/unit/*.test.js test/integration/*.test.js
 ```
 
-148 tests, 13 test files, zero test dependencies. Integration tests auto-skip when no ADB device is available.
+168 tests, 13 test files, zero test dependencies. Integration tests auto-skip when no ADB device is available.
 
 ```
           ┌─────────┐
@@ -18,8 +18,8 @@ node --test test/unit/*.test.js test/integration/*.test.js
           │ Integr. │  26 tests — real device, full pipeline
           │  (26)   │  connect (16) + CLI session (10)
           ├─────────┤
-          │  Unit   │  148 tests — pure functions, no device needed
-          │  (148)  │  xml, prune, aria, interact, termux, termux-api,
+          │  Unit   │  168 tests — pure functions, no device needed
+          │  (168)  │  xml, prune, aria, interact, termux, termux-api,
           │         │  mcp, ios, usbmux, setup, cli
           └─────────┘
 ```
@@ -143,7 +143,7 @@ node --test test/integration/*.test.js  # integration tests (needs emulator)
 | File | Tests | What it covers |
 |------|-------|----------------|
 | `test/unit/xml.test.js` | 12 | `parseBounds` (3): standard, empty, malformed. `parseXml` (9): single node, nested tree, self-closing, editable detection, empty/error input, all 12 attributes, XML entity decoding |
-| `test/unit/prune.test.js` | 10 | Collapse single-child wrappers, keep ref nodes, drop empty leaves, ref assignment, dedup same-text siblings, skip dedup on ref nodes, refMap, null root, contentDesc, states |
+| `test/unit/prune.test.js` | 18 | Collapse single-child wrappers, keep ref nodes, drop empty leaves, ref assignment, dedup same-text siblings, skip dedup on ref nodes, refMap, null root, contentDesc, states, isInternalName detection (5), internal name filtering in shouldKeep (3) |
 | `test/unit/aria.test.js` | 10 | `shortClass` (5): core widgets, layouts→Group, AppCompat/Material, unknown→last segment, empty→View. `formatTree` (5): all fields + ref + states, nesting, disabled, multiple states, empty node |
 | `test/unit/interact.test.js` | 14 | `buildGrid` (7): column/row sizing, cell resolution, errors, text. Error handling (7): press/tap/scroll/type/longPress validation |
 | `test/integration/connect.test.js` | 16 | Page object, snapshot, launch, back, screenshot, grid, tapXY, tapGrid, intent, waitForText (2), tap by ref, type, scroll, swipe, home |
@@ -263,7 +263,7 @@ termux-vibrate                 # device should vibrate
 | File | Tests | What it covers |
 |------|-------|----------------|
 | `test/unit/cli.test.js` | 10 | Argument parsing, flag handling, command dispatch |
-| `test/unit/mcp.test.js` | 15 | Tool list (8): count, names, schemas, params. JSON-RPC dispatch (5): init, notifications, tools/list, errors. saveSnapshot (2): file write + maxChars |
+| `test/unit/mcp.test.js` | 16 | Tool list (9): count, names, schemas, params, find_by_text. JSON-RPC dispatch (5): init, notifications, tools/list, errors. saveSnapshot (2): file write + maxChars |
 | `test/integration/cli.test.js` | 10 | open, status, snapshot, launch+snapshot, tap, back, screenshot, logcat, close, status-after-close |
 
 ### Android E2E flows (manually verified)
@@ -373,7 +373,7 @@ src/setup.js            # Unified setup wizard (Android + iOS)
 
 | File | Tests | What it covers |
 |------|-------|----------------|
-| `test/unit/ios.test.js` | 29 | Module exports (2), translateWda node shape — bounds, hierarchy, invisible leaf skip, container passthrough, switch/checked, editable, scrollable, name→contentDesc, self-closing, entities, disabled (13), prune+formatTree pipeline (5), CLASS_MAP integration (2), coordinate calculation (2), additional coverage (5) |
+| `test/unit/ios.test.js` | 39 | Module exports (2), translateWda node shape (13), prune+formatTree pipeline (5), CLASS_MAP (2), coordinates (2), StatusBar/dedup (5), keyboard stripping (3), Unicode noise (3), file path stripping (3), findByText (1) |
 | `test/unit/usbmux.test.js` | 4 | listDevices plist parsing (1), connectDevice binary packet (1), forward TCP lifecycle (1), protocol header format (1) |
 | `test/unit/setup.test.js` | 12 | detectHost, parseTunnelOutput, which, parseWdaBundleFromJson |
 

@@ -113,7 +113,13 @@ async function resolveWda(opts) {
 
 const ENTITIES = { '&amp;': '&', '&lt;': '<', '&gt;': '>', '&quot;': '"', '&apos;': "'" };
 const ENTITY_RE = /&(?:amp|lt|gt|quot|apos);/g;
-function decodeEntities(s) { return s ? s.replace(ENTITY_RE, m => ENTITIES[m]) : s; }
+const UNICODE_NOISE = /[\u200B-\u200F\u2028-\u202F\u2060-\u2069\uFEFF]/g;
+const IOS_PATH_RE = /\/(?:private\/)?var\/mobile\/[\w/.-]+/g;
+
+function cleanText(s) {
+  if (!s) return s;
+  return s.replace(ENTITY_RE, m => ENTITIES[m]).replace(UNICODE_NOISE, '').replace(IOS_PATH_RE, '');
+}
 
 const CLICKABLE_TYPES = new Set([
   'XCUIElementTypeButton', 'XCUIElementTypeCell', 'XCUIElementTypeLink',
@@ -165,9 +171,8 @@ export function translateWda(xml) {
       attrs[am[1]] = am[2];
     }
 
-    // Skip StatusBar entirely — noise for agents
-    if (type === 'XCUIElementTypeStatusBar') {
-      // Skip until matching close tag (or self-closing)
+    // Skip StatusBar and Keyboard entirely — noise for agents
+    if (type === 'XCUIElementTypeStatusBar' || type === 'XCUIElementTypeKeyboard') {
       if (!match[0].endsWith('/>')) {
         let depth = 1;
         while (depth > 0 && (match = tagRe.exec(xml)) !== null) {
@@ -194,9 +199,9 @@ export function translateWda(xml) {
     const bounds = (w > 0 && h > 0) ? { x1: x, y1: y, x2: x + w, y2: y + h } : null;
 
     // Map WDA attributes to Android node shape
-    const label = decodeEntities(attrs.label || '');
-    const name = decodeEntities(attrs.name || '');
-    const value = decodeEntities(attrs.value || '');
+    const label = cleanText(attrs.label || '');
+    const name = cleanText(attrs.name || '');
+    const value = cleanText(attrs.value || '');
 
     const isSwitch = type === 'XCUIElementTypeSwitch' || type === 'XCUIElementTypeToggle';
 
@@ -520,6 +525,13 @@ export async function connect(opts = {}) {
         await new Promise(r => setTimeout(r, 1000));
       }
       throw new Error(`waitForState: ref=${ref} not in state "${state}" after ${timeout}ms`);
+    },
+
+    findByText(text) {
+      for (const [ref, node] of _refMap) {
+        if (node.text?.includes(text) || node.contentDesc?.includes(text)) return ref;
+      }
+      return null;
     },
 
     close() {

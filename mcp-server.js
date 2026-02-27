@@ -3,7 +3,7 @@
  * mcp-server.js — MCP server for baremobile.
  *
  * Raw JSON-RPC 2.0 over stdio. No SDK dependency.
- * 10 tools: snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back.
+ * 11 tools: snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back, find_by_text.
  *
  * Dual-platform: Android (default) and iOS. Each platform gets its own
  * lazy-created page. Pass platform: "ios" to target iPhone.
@@ -166,6 +166,18 @@ const TOOLS = [
       properties: { ...PLATFORM_PROP },
     },
   },
+  {
+    name: 'find_by_text',
+    description: 'Find an interactive element by text match. Returns the ref number or null if not found. Requires a prior snapshot.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        text: { type: 'string', description: 'Text to search for (substring match)' },
+        ...PLATFORM_PROP,
+      },
+      required: ['text'],
+    },
+  },
 ];
 
 async function handleToolCall(name, args) {
@@ -233,6 +245,11 @@ async function handleToolCall(name, args) {
       await page.back();
       return 'ok';
     }
+    case 'find_by_text': {
+      const page = await getPage(platform);
+      const ref = page.findByText(args.text);
+      return ref !== null ? String(ref) : 'null';
+    }
     default:
       throw new Error(`Unknown tool: ${name}`);
   }
@@ -253,7 +270,7 @@ async function handleMessage(msg) {
     return jsonrpcResponse(id, {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'baremobile', version: '0.7.2' },
+      serverInfo: { name: 'baremobile', version: '0.7.5' },
     });
   }
 
@@ -299,6 +316,31 @@ async function handleMessage(msg) {
       const msg = err?.message || '';
       const isConnErr = err?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET'
         || msg.includes('fetch failed') || msg.includes('ECONNREFUSED');
+      const platform = (args || {}).platform || 'android';
+
+      // Tier 2: iOS auto-restart — reconnect failed, try restarting WDA tunnel
+      if (isConnErr && platform === 'ios') {
+        try {
+          const { restartWda } = await import('./src/setup.js');
+          await restartWda((m) => process.stderr.write(`[baremobile] ${m}\n`));
+          _pages[platform] = null;
+          const result = await handleToolCall(name, args || {});
+          if (result && result._image) {
+            return jsonrpcResponse(id, {
+              content: [{ type: 'image', data: result._image, mimeType: 'image/png' }],
+            });
+          }
+          return jsonrpcResponse(id, {
+            content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result) }],
+          });
+        } catch (restartErr) {
+          return jsonrpcResponse(id, {
+            content: [{ type: 'text', text: `WDA tunnel died and auto-restart failed: ${restartErr.message}. Reconnect USB and run \`npx baremobile setup\`.` }],
+            isError: true,
+          });
+        }
+      }
+
       const hint = isConnErr
         ? ' WDA/ADB may be down. Reconnect USB and run `npx baremobile setup`.'
         : '';

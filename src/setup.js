@@ -913,3 +913,204 @@ export async function teardown() {
     process.stderr.write(`${remaining} processes still running — may need manual cleanup.\n`);
   }
 }
+
+/**
+ * Non-interactive WDA restart for auto-recovery.
+ * Two-tier: first tries WDA-only restart (if tunnel is alive), then full restart.
+ * @param {function} [log] — optional log callback
+ * @returns {Promise<{baseUrl: string}>}
+ */
+export async function restartWda(log = () => {}) {
+  const host = detectHost();
+  const pids = loadPids();
+
+  // Tier 1: Check if tunnel is still alive — only restart WDA + forward
+  if (pids) {
+    let tunnelAlive = false;
+    try { process.kill(pids.tunnel, 0); tunnelAlive = true; } catch { /* dead */ }
+
+    if (tunnelAlive) {
+      log('Tunnel alive — restarting WDA only...');
+      // Kill WDA and forward
+      try { process.kill(pids.wda, 'SIGKILL'); } catch { /* already dead */ }
+      try { process.kill(pids.fwd, 'SIGKILL'); } catch { /* already dead */ }
+      // Kill stale port 8100
+      try { execFileSync('fuser', ['-k', '8100/tcp'], { stdio: 'pipe' }); } catch { /* ignore */ }
+      await new Promise(r => setTimeout(r, 500));
+
+      // Re-read tunnel output from stored RSD info — we need rsd addr/port
+      // Since we don't store RSD info, re-discover via pgrep
+      let rsdAddr, rsdPort;
+      try {
+        const out = execFileSync('pgrep', ['-af', 'pymobiledevice3.*start-tunnel'], {
+          encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim();
+        // Parse --rsd or RSD Address from /proc/PID/fd output isn't reliable.
+        // Instead, check /status on the existing tunnel port — if WDA was on 8100,
+        // we need tunnel's RSD to relaunch WDA.
+        // Simpler approach: read from netstat or just try known RSD patterns
+      } catch { /* ignore */ }
+
+      // We can't easily recover RSD addr/port without storing it.
+      // Fall through to tier 2 if we can't relaunch WDA quickly.
+      // But first try: the tunnel may still be forwarding — just relaunch WDA via pymobiledevice3
+      const bundle = findWdaBundle();
+      const py = findPython();
+      if (bundle && py) {
+        // Try to get RSD from tunnel process cmdline
+        try {
+          const cmdline = readFileSync(`/proc/${pids.tunnel}/cmdline`, 'utf8');
+          const parts = cmdline.split('\0');
+          const rsdIdx = parts.indexOf('--rsd');
+          if (rsdIdx === -1) {
+            // Tunnel doesn't use --rsd flag directly — it outputs RSD info.
+            // We need to store RSD info. For now, fall through to tier 2.
+            throw new Error('no --rsd in cmdline');
+          }
+        } catch {
+          // Can't recover RSD — fall through to full restart
+          log('Cannot recover RSD info — doing full restart...');
+        }
+      }
+    }
+
+    // Kill everything for full restart
+    log('Killing existing processes...');
+    const killCmd = host.os === 'wsl' ? 'sudo' : host.os === 'macos' ? 'sudo' : 'pkexec';
+    try { execFileSync(killCmd, ['kill', '-9', String(pids.tunnel)], { stdio: 'pipe' }); } catch { /* ignore */ }
+    try { process.kill(pids.wda, 'SIGKILL'); } catch { /* ignore */ }
+    try { process.kill(pids.fwd, 'SIGKILL'); } catch { /* ignore */ }
+    try { unlinkSync(PID_FILE); } catch { /* ignore */ }
+  }
+
+  // Also kill by pattern
+  try { execFileSync('pkill', ['-f', 'pymobiledevice3.*start-tunnel'], { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('pkill', ['-f', 'XCUITestService'], { stdio: 'pipe' }); } catch { /* ignore */ }
+  try { execFileSync('fuser', ['-k', '8100/tcp'], { stdio: 'pipe' }); } catch { /* ignore */ }
+  await new Promise(r => setTimeout(r, 500));
+
+  // Tier 2: Full restart — tunnel + DDI + WDA + forward
+  const device = await findUsbDevice();
+  if (!device) throw new Error('No USB device found. Reconnect iPhone.');
+
+  // Start tunnel
+  log('Starting tunnel...');
+  const pmd3Path = which('pymobiledevice3');
+  if (!pmd3Path) throw new Error('pymobiledevice3 not in PATH');
+
+  let tunnelChild;
+  if (host.os === 'macos') {
+    if (which('xcrun')) {
+      tunnelChild = spawn('xcrun', ['devicectl', 'device', 'tunnel', '--udid', device.serial], {
+        stdio: ['pipe', 'pipe', 'pipe'], detached: true,
+      });
+    } else {
+      tunnelChild = spawn('sudo', ['pymobiledevice3', 'lockdown', 'start-tunnel'], {
+        stdio: ['pipe', 'pipe', 'pipe'], detached: true,
+      });
+    }
+  } else if (host.os === 'wsl') {
+    tunnelChild = spawn('sudo', ['pymobiledevice3', 'lockdown', 'start-tunnel'], {
+      stdio: ['pipe', 'pipe', 'pipe'], detached: true,
+    });
+  } else {
+    const py = findPython();
+    const envArgs = [];
+    if (py) {
+      try {
+        const sp = execFileSync(py, ['-c', 'import site; print(site.getusersitepackages())'], {
+          encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
+        }).trim();
+        if (sp) envArgs.push('env', `PYTHONPATH=${sp}`);
+      } catch { /* best effort */ }
+    }
+    tunnelChild = spawn('pkexec', [...envArgs, pmd3Path, 'lockdown', 'start-tunnel'], {
+      stdio: ['pipe', 'pipe', 'pipe'], detached: true,
+    });
+  }
+
+  let tunnelOutput;
+  try {
+    tunnelOutput = await waitForOutput(tunnelChild, /RSD Port:\s*\d+/i, 20000);
+  } catch (err) {
+    try { tunnelChild.kill(); } catch { /* ignore */ }
+    throw new Error(`Tunnel failed: ${err.message}`);
+  }
+
+  const rsd = parseTunnelOutput(tunnelOutput);
+  if (!rsd) {
+    try { tunnelChild.kill(); } catch { /* ignore */ }
+    throw new Error('Could not parse RSD address/port from tunnel output');
+  }
+  log(`Tunnel up: ${rsd.rsdAddr}:${rsd.rsdPort}`);
+
+  // Mount DDI
+  log('Mounting DDI...');
+  try {
+    pmd3(['mounter', 'auto-mount', '--rsd', rsd.rsdAddr, rsd.rsdPort]);
+  } catch (err) {
+    if (!err.message?.includes('already') && !err.stderr?.includes('already')) {
+      log(`DDI mount warning: ${err.message}`);
+    }
+  }
+
+  // Launch WDA
+  log('Launching WDA...');
+  const bundle = findWdaBundle();
+  if (!bundle) throw new Error('WDA not installed on device');
+  const py = findPython();
+  if (!py) throw new Error('No Python with pymobiledevice3 found');
+
+  const wdaChild = spawn(py, ['-c', `
+import asyncio
+from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+from pymobiledevice3.services.dvt.testmanaged.xcuitest import XCUITestService
+async def main():
+    rsd = RemoteServiceDiscoveryService(('${rsd.rsdAddr}', ${rsd.rsdPort}))
+    await rsd.connect()
+    XCUITestService(rsd).run('${bundle}')
+asyncio.run(main())
+`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+  wdaChild.stdout.on('data', () => {});
+  wdaChild.stderr.on('data', () => {});
+
+  // Port forward + verify
+  log('Verifying WDA...');
+  const { forward } = await import('./usbmux.js');
+  let fwdServer;
+  try {
+    fwdServer = await forward(device.deviceId, 8100, 8100);
+  } catch (err) {
+    throw new Error(`Port forward failed: ${err.message}`);
+  }
+
+  let ready = false;
+  for (let i = 0; i < 3; i++) {
+    await new Promise(r => setTimeout(r, 2000));
+    try {
+      const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
+      const status = await res.json();
+      if (status.value?.ready) { ready = true; break; }
+    } catch { /* retry */ }
+  }
+
+  if (!ready) {
+    try { tunnelChild.kill(); } catch { /* ignore */ }
+    try { wdaChild.kill(); } catch { /* ignore */ }
+    if (fwdServer) fwdServer.close();
+    throw new Error('WDA not responding after restart');
+  }
+
+  // Save PIDs and unref
+  savePids(tunnelChild.pid, wdaChild.pid, process.pid);
+  tunnelChild.stdout.unref();
+  tunnelChild.stderr.unref();
+  tunnelChild.unref();
+  wdaChild.stdout.unref();
+  wdaChild.stderr.unref();
+  wdaChild.unref();
+  if (fwdServer) fwdServer.unref();
+
+  log('WDA restarted successfully');
+  return { baseUrl: 'http://localhost:8100' };
+}

@@ -19,7 +19,7 @@ src/
 ├── ios-cert.js   — WDA cert expiry tracking (7-day free Apple ID certs)
 └── setup.js      — Unified setup wizard: Android, iOS from scratch, start WDA, resign cert, teardown
 
-mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platform (Android + iOS)
+mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 11 tools, dual-platform (Android + iOS)
 ```
 
 13 modules, ~1,800 lines, zero dependencies.
@@ -39,6 +39,7 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platfo
 | 3.2 iOS usbmux + auto-connect | DONE | Node.js usbmuxd client replaces pymobiledevice3 port forwarder. Auto-discovery: WiFi (cached) > USB > localhost. unlock() error handling. iOS = QA only (USB required). |
 | 3.3 iOS CLI + MCP integration | DONE | Dual-platform MCP (platform param on all tools), CLI --platform flag, setup wizard, ios resign/teardown commands, cert expiry tracking (ios-cert.js). |
 | 3.4 iOS navigation fixes | DONE | W3C Actions tap (replaces silent /wda/tap), screen-size-aware back() fallback, launch/activate error checking, MCP WDA auto-reconnect. |
+| 3.5 iOS snapshot cleanup + auto-restart | DONE | Keyboard/Unicode/file-path stripping, internal name filter, findByText helper, WDA tunnel auto-restart via restartWda(). |
 
 ## What's next
 
@@ -54,7 +55,7 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platfo
 
 ## Tests
 
-148 unit tests + integration tests. All passing.
+168 unit tests + integration tests. All passing.
 
 Run: `node --test test/unit/*.test.js test/integration/*.test.js`
 
@@ -70,4 +71,4 @@ iOS tests from Phase 2.7–2.95 (BLE HID era) have been removed. iOS validation 
 - Termux ADB: POC validated (snapshot + tap + launch via localhost)
 - Termux:API: POC validated with Node.js inside Termux (battery, clipboard, volume, wifi, vibrate)
 - Termux:API (not yet validated): SMS, calls, location, camera (needs real device)
-- iOS WDA: `src/ios.js` — connect, snapshot, tap(ref), type, scroll, swipe, longPress, launch, back, home, screenshot, waitForText, tapXY. Translation layer (`translateWda()`) converts WDA XML → Android node shape → shared prune pipeline. Coordinate-based tap/scroll/longPress from bounds. Hierarchical YAML output identical to Android. Taps use W3C Actions API (not /wda/tap). launch/activate check error responses. MCP server auto-reconnects on WDA death.
+- iOS WDA: `src/ios.js` — connect, snapshot, tap(ref), type, scroll, swipe, longPress, launch, back, home, screenshot, waitForText, tapXY, findByText. Translation layer (`translateWda()`) converts WDA XML → Android node shape → shared prune pipeline. Coordinate-based tap/scroll/longPress from bounds. Hierarchical YAML output identical to Android. Taps use W3C Actions API (not /wda/tap). launch/activate check error responses. MCP server auto-reconnects on WDA death, auto-restarts WDA tunnel on second failure. Snapshot cleanup: keyboard subtree stripped, Unicode noise removed, iOS file paths stripped, internal class names filtered.

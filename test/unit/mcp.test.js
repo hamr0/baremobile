@@ -14,13 +14,13 @@ import { TOOLS, handleMessage } from '../../mcp-server.js';
 
 describe('MCP tools/list', () => {
   it('has exactly 10 tools', () => {
-    assert.equal(TOOLS.length, 10);
+    assert.equal(TOOLS.length, 11);
   });
 
   it('has expected tool names', () => {
     const names = TOOLS.map(t => t.name).sort();
     assert.deepEqual(names, [
-      'back', 'launch', 'long_press', 'press', 'screenshot',
+      'back', 'find_by_text', 'launch', 'long_press', 'press', 'screenshot',
       'scroll', 'snapshot', 'swipe', 'tap', 'type',
     ]);
   });
@@ -54,6 +54,11 @@ describe('MCP tools/list', () => {
     assert.deepEqual(swipe.inputSchema.required, ['x1', 'y1', 'x2', 'y2']);
   });
 
+  it('find_by_text requires text', () => {
+    const fbt = TOOLS.find(t => t.name === 'find_by_text');
+    assert.deepEqual(fbt.inputSchema.required, ['text']);
+  });
+
   it('screenshot and back have no required params', () => {
     const screenshot = TOOLS.find(t => t.name === 'screenshot');
     const back = TOOLS.find(t => t.name === 'back');
@@ -82,7 +87,7 @@ describe('MCP JSON-RPC dispatch', () => {
   it('tools/list returns all tools', async () => {
     const raw = await handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const res = JSON.parse(raw);
-    assert.equal(res.result.tools.length, 10);
+    assert.equal(res.result.tools.length, 11);
   });
 
   it('unknown method returns error -32601', async () => {

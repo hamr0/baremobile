@@ -25,7 +25,7 @@ src/
   usbmux.js        -- Node.js usbmuxd client for iOS USB connection
   xml.js           -- Zero-dep XML parser (pure, no I/O)
 
-mcp-server.js      -- MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platform
+mcp-server.js      -- MCP server: JSON-RPC 2.0 over stdio, 11 tools, dual-platform
 cli.js             -- CLI entry point: baremobile <command> [options]
 ```
 
@@ -334,6 +334,7 @@ Interactive setup for both platforms. `baremobile setup` detects what is already
 
 - Android: check ADB in PATH, check device connected
 - iOS: check pymobiledevice3, USB device, developer mode, WDA installed, tunnel running, verify WDA connection
+- `restartWda()` — non-interactive WDA restart for auto-recovery. Kills existing processes, starts tunnel/DDI/WDA/forward. Called by MCP server on second iOS connection failure.
 
 ### `src/daemon.js` -- CLI Daemon
 
@@ -349,7 +350,7 @@ IPC client for CLI -> daemon communication. Used by `cli.js` to send commands to
 
 ### `mcp-server.js` -- MCP Server
 
-JSON-RPC 2.0 over stdio. 10 tools: `snapshot`, `tap`, `type`, `press`, `scroll`, `swipe`, `long_press`, `launch`, `screenshot`, `back`. All accept optional `platform: "android" | "ios"`.
+JSON-RPC 2.0 over stdio. 11 tools: `snapshot`, `tap`, `type`, `press`, `scroll`, `swipe`, `long_press`, `launch`, `screenshot`, `back`, `find_by_text`. All accept optional `platform: "android" | "ios"`. Auto-restarts WDA tunnel on second iOS connection failure via `restartWda()`.
 
 Per-platform lazy pages -- `connect()` on first tool call per platform. Action tools return `'ok'`, agent calls `snapshot` explicitly to observe. Large snapshots (>30K chars) saved to `.baremobile/screen-{timestamp}.yml`.
 
@@ -428,7 +429,7 @@ multis has a skill system using bare-agent for LLM tool calling. baremobile's ba
 
 ## Tests
 
-~148 tests (unit + integration). Run all:
+~168 tests (unit + integration). Run all:
 
 ```bash
 node --test test/unit/*.test.js test/integration/*.test.js
@@ -439,12 +440,12 @@ Test files:
 | File | What |
 |------|------|
 | `test/unit/xml.test.js` | XML parsing, bounds, entities |
-| `test/unit/prune.test.js` | Collapse, keep, drop, dedup, refs |
+| `test/unit/prune.test.js` | Collapse, keep, drop, dedup, refs, internal name filter |
 | `test/unit/aria.test.js` | shortClass mappings, formatTree |
 | `test/unit/interact.test.js` | buildGrid, error handling |
 | `test/unit/termux.test.js` | Termux detection, device discovery |
 | `test/unit/termux-api.test.js` | Module exports, isAvailable, ENOENT |
-| `test/unit/ios.test.js` | translateWda, prune pipeline, CLASS_MAP |
+| `test/unit/ios.test.js` | translateWda, prune pipeline, CLASS_MAP, keyboard/Unicode/path stripping |
 | `test/unit/usbmux.test.js` | usbmuxd protocol, proxy |
 | `test/unit/mcp.test.js` | MCP server tools |
 | `test/unit/setup.test.js` | Setup wizard |
@@ -617,7 +618,9 @@ Same page-object pattern as Android, verified on physical iPhone.
 | 3.1 | iOS translation layer -- translateWda() + shared prune/format pipeline |
 | 3.2 | iOS usbmux.js + auto-connect -- replaced pymobiledevice3 forwarder |
 | 3.3 | iOS CLI + MCP integration -- dual-platform MCP, setup wizard, cert tracking |
-| 3 | MCP server -- 10 tools, JSON-RPC 2.0 over stdio |
+| 3.4 | iOS navigation fixes -- W3C Actions tap, screen-size-aware back(), launch error checking |
+| 3.5 | iOS snapshot cleanup + auto-restart -- keyboard/Unicode/path stripping, internal name filter, findByText, WDA tunnel auto-restart |
+| 3 | MCP server -- 11 tools, JSON-RPC 2.0 over stdio |
 | 4 | CLI session mode -- daemon, logcat, full command set |
 
 ### Future

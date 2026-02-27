@@ -151,6 +151,13 @@ export async function connect(opts = {}) {
       return exec(['exec-out', 'screencap -p'], { serial, timeout: 10_000, encoding: 'buffer' });
     },
 
+    findByText(text) {
+      for (const [ref, node] of _refMap) {
+        if (node.text?.includes(text) || node.contentDesc?.includes(text)) return ref;
+      }
+      return null;
+    },
+
     close() {
       // ADB is stateless — no-op for now, keeps API compatible with future daemon
     },

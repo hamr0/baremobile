@@ -361,6 +361,113 @@ describe('iOS module — unit tests', () => {
     });
   });
 
+  describe('Keyboard filtering', () => {
+    const KEYBOARD_XML = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeTextField type="XCUIElementTypeTextField" visible="true" enabled="true" label="Message" x="10" y="400" width="370" height="36"/>
+  <XCUIElementTypeKeyboard type="XCUIElementTypeKeyboard" visible="true" enabled="true" x="0" y="500" width="390" height="344">
+    <XCUIElementTypeKey type="XCUIElementTypeKey" visible="true" enabled="true" label="Q" x="3" y="510" width="35" height="42"/>
+    <XCUIElementTypeKey type="XCUIElementTypeKey" visible="true" enabled="true" label="W" x="42" y="510" width="35" height="42"/>
+    <XCUIElementTypeKey type="XCUIElementTypeKey" visible="true" enabled="true" label="E" x="81" y="510" width="35" height="42"/>
+    <XCUIElementTypeButton type="XCUIElementTypeButton" visible="true" enabled="true" label="shift" x="3" y="600" width="42" height="42"/>
+  </XCUIElementTypeKeyboard>
+</XCUIElementTypeApplication>`;
+
+    it('should strip keyboard subtree entirely', () => {
+      const root = translateWda(KEYBOARD_XML);
+      assert.ok(root);
+      // Only the text field should remain — no keyboard, no keys
+      assert.equal(root.children.length, 1);
+      assert.equal(root.children[0].class, 'XCUIElementTypeTextField');
+    });
+
+    it('should not contain key labels after pipeline', () => {
+      const root = translateWda(KEYBOARD_XML);
+      const { tree } = prune(root);
+      const yaml = formatTree(tree);
+      assert.ok(!yaml.includes('"Q"'));
+      assert.ok(!yaml.includes('"W"'));
+      assert.ok(!yaml.includes('"shift"'));
+      assert.ok(yaml.includes('Message'));
+    });
+
+    it('should handle self-closing keyboard tag', () => {
+      const xml = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeKeyboard type="XCUIElementTypeKeyboard" visible="true" enabled="true" x="0" y="500" width="390" height="344"/>
+  <XCUIElementTypeButton type="XCUIElementTypeButton" visible="true" enabled="true" label="Send" x="10" y="100" width="100" height="44"/>
+</XCUIElementTypeApplication>`;
+      const root = translateWda(xml);
+      assert.equal(root.children.length, 1);
+      assert.equal(root.children[0].text, 'Send');
+    });
+  });
+
+  describe('Unicode noise stripping', () => {
+    it('should strip RTL/LTR marks from labels', () => {
+      const xml = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" visible="true" enabled="true" label="\u200EMelanie\u200F" x="10" y="10" width="100" height="20"/>
+</XCUIElementTypeApplication>`;
+      const root = translateWda(xml);
+      assert.equal(root.children[0].text, 'Melanie');
+    });
+
+    it('should strip zero-width spaces and directional isolates', () => {
+      const xml = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" visible="true" enabled="true" label="\u2068Hello\u2069 \u200BWorld" x="10" y="10" width="100" height="20"/>
+</XCUIElementTypeApplication>`;
+      const root = translateWda(xml);
+      assert.equal(root.children[0].text, 'Hello World');
+    });
+
+    it('should strip BOM character', () => {
+      const xml = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" visible="true" enabled="true" label="\uFEFFTest" x="10" y="10" width="100" height="20"/>
+</XCUIElementTypeApplication>`;
+      const root = translateWda(xml);
+      assert.equal(root.children[0].text, 'Test');
+    });
+  });
+
+  describe('iOS file path stripping', () => {
+    it('should strip /var/mobile paths from labels', () => {
+      const xml = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeImage type="XCUIElementTypeImage" visible="true" enabled="true" label="/private/var/mobile/Containers/Shared/AppGroup/5C6FD848-1234/Photo.thumb" x="10" y="10" width="40" height="40"/>
+</XCUIElementTypeApplication>`;
+      const root = translateWda(xml);
+      assert.equal(root.children[0].text, '');
+    });
+
+    it('should strip /var/mobile paths without /private prefix', () => {
+      const xml = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" visible="true" enabled="true" label="Photo /var/mobile/Media/img.jpg here" x="10" y="10" width="100" height="20"/>
+</XCUIElementTypeApplication>`;
+      const root = translateWda(xml);
+      assert.equal(root.children[0].text, 'Photo  here');
+    });
+
+    it('should not strip non-iOS paths', () => {
+      const xml = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeStaticText type="XCUIElementTypeStaticText" visible="true" enabled="true" label="/home/user/file.txt" x="10" y="10" width="100" height="20"/>
+</XCUIElementTypeApplication>`;
+      const root = translateWda(xml);
+      assert.equal(root.children[0].text, '/home/user/file.txt');
+    });
+  });
+
+  describe('findByText() in source', () => {
+    it('should define findByText method', async () => {
+      const src = (await import('node:fs')).readFileSync('src/ios.js', 'utf8');
+      assert.ok(src.includes('findByText('), 'Missing findByText method');
+    });
+  });
+
   describe('press() key coverage', () => {
     // We can't call press() without a WDA connection, but we can verify
     // the action map covers the expected keys by inspecting the source
@@ -379,7 +486,8 @@ describe('iOS module — unit tests', () => {
       const methods = [
         'snapshot', 'tap', 'type', 'press', 'swipe', 'scroll',
         'longPress', 'tapXY', 'back', 'home', 'lock', 'unlock',
-        'launch', 'activate', 'screenshot', 'waitForText', 'waitForState', 'close',
+        'launch', 'activate', 'screenshot', 'waitForText', 'waitForState',
+        'findByText', 'close',
       ];
       for (const m of methods) {
         assert.ok(src.includes(`async ${m}(`) || src.includes(`${m}(`),
