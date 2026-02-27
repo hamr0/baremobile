@@ -1,6 +1,6 @@
 {
   "name": "baremobile",
-  "version": "0.7.5",
+  "version": "0.7.6",
   "type": "module",
   "description": "ADB-direct Android control for autonomous agents. Accessibility tree in, pruned snapshot out.",
   "main": "src/index.js",
