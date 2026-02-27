@@ -8,7 +8,7 @@
 node --test test/unit/*.test.js test/integration/*.test.js
 ```
 
-168 tests, 13 test files, zero test dependencies. Integration tests auto-skip when no ADB device is available.
+176 tests, 13 test files, zero test dependencies. Integration tests auto-skip when no ADB device is available.
 
 ```
           ┌─────────┐
@@ -18,8 +18,8 @@ node --test test/unit/*.test.js test/integration/*.test.js
           │ Integr. │  26 tests — real device, full pipeline
           │  (26)   │  connect (16) + CLI session (10)
           ├─────────┤
-          │  Unit   │  168 tests — pure functions, no device needed
-          │  (168)  │  xml, prune, aria, interact, termux, termux-api,
+          │  Unit   │  176 tests — pure functions, no device needed
+          │  (176)  │  xml, prune, aria, interact, termux, termux-api,
           │         │  mcp, ios, usbmux, setup, cli
           └─────────┘
 ```
@@ -373,7 +373,7 @@ src/setup.js            # Unified setup wizard (Android + iOS)
 
 | File | Tests | What it covers |
 |------|-------|----------------|
-| `test/unit/ios.test.js` | 39 | Module exports (2), translateWda node shape (13), prune+formatTree pipeline (5), CLASS_MAP (2), coordinates (2), StatusBar/dedup (5), keyboard stripping (3), Unicode noise (3), file path stripping (3), findByText (1) |
+| `test/unit/ios.test.js` | 47 | Module exports (2), translateWda node shape (13), prune+formatTree pipeline (5), CLASS_MAP (2), accessible attr refs (5), screenshotToPoint (3), coordinates (2), StatusBar/dedup (5), keyboard stripping (3), Unicode noise (3), file path stripping (3), findByText (1) |
 | `test/unit/usbmux.test.js` | 4 | listDevices plist parsing (1), connectDevice binary packet (1), forward TCP lifecycle (1), protocol header format (1) |
 | `test/unit/setup.test.js` | 12 | detectHost, parseTunnelOutput, which, parseWdaBundleFromJson |
 

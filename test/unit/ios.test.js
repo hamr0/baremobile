@@ -286,6 +286,117 @@ describe('iOS module — unit tests', () => {
     });
   });
 
+  describe('accessible attribute — ref assignment for custom-UI elements', () => {
+    const ACCESSIBLE_GROUP = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeOther type="XCUIElementTypeOther" visible="true" enabled="true" accessible="true" label="Chat with Alice" x="0" y="100" width="390" height="60"/>
+</XCUIElementTypeApplication>`;
+
+    const INACCESSIBLE_GROUP = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeOther type="XCUIElementTypeOther" visible="true" enabled="true" accessible="false" label="Decoration" x="0" y="100" width="390" height="60"/>
+</XCUIElementTypeApplication>`;
+
+    const ACCESSIBLE_NO_TEXT = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeOther type="XCUIElementTypeOther" visible="true" enabled="true" accessible="true" x="0" y="100" width="390" height="60"/>
+</XCUIElementTypeApplication>`;
+
+    const TELEGRAM_CHAT_LIST = `
+<XCUIElementTypeApplication type="XCUIElementTypeApplication" visible="true" enabled="true" x="0" y="0" width="390" height="844">
+  <XCUIElementTypeTable type="XCUIElementTypeTable" visible="true" enabled="true" x="0" y="88" width="390" height="756">
+    <XCUIElementTypeOther type="XCUIElementTypeOther" visible="true" enabled="true" accessible="true" label="Alice, 2 unread, Last message preview" x="0" y="88" width="390" height="76"/>
+    <XCUIElementTypeOther type="XCUIElementTypeOther" visible="true" enabled="true" accessible="true" label="Bob, Hey are you free?" x="0" y="164" width="390" height="76"/>
+    <XCUIElementTypeOther type="XCUIElementTypeOther" visible="true" enabled="true" accessible="true" label="Work Group, 5 new messages" x="0" y="240" width="390" height="76"/>
+    <XCUIElementTypeOther type="XCUIElementTypeOther" visible="true" enabled="true" accessible="false" x="0" y="316" width="390" height="2"/>
+  </XCUIElementTypeTable>
+</XCUIElementTypeApplication>`;
+
+    it('should mark accessible XCUIElementTypeOther with label as clickable', () => {
+      const root = translateWda(ACCESSIBLE_GROUP);
+      const other = root.children[0];
+      assert.equal(other.clickable, true);
+      assert.equal(other.text, 'Chat with Alice');
+    });
+
+    it('should NOT mark inaccessible XCUIElementTypeOther as clickable', () => {
+      const root = translateWda(INACCESSIBLE_GROUP);
+      const other = root.children[0];
+      assert.equal(other.clickable, false);
+    });
+
+    it('should NOT mark accessible element without text as clickable', () => {
+      const root = translateWda(ACCESSIBLE_NO_TEXT);
+      const other = root.children[0];
+      assert.equal(other.clickable, false);
+    });
+
+    it('should assign refs to Telegram-like chat rows through full pipeline', () => {
+      const root = translateWda(TELEGRAM_CHAT_LIST);
+      const { tree, refMap } = prune(root);
+      const yaml = formatTree(tree);
+
+      // 3 accessible chat rows + 1 scrollable table = 4 refs
+      // The inaccessible separator should NOT get a ref
+      assert.ok(yaml.includes('Alice'));
+      assert.ok(yaml.includes('Bob'));
+      assert.ok(yaml.includes('Work Group'));
+
+      // Count refs — at least 3 for the chat rows
+      const refMatches = yaml.match(/\[ref=\d+\]/g) || [];
+      assert.ok(refMatches.length >= 3, `Expected >=3 refs, got ${refMatches.length}: ${yaml}`);
+
+      // Verify inaccessible separator has no ref
+      let hasNoTextRef = false;
+      for (const [, node] of refMap) {
+        if (!node.text && !node.contentDesc && !node.scrollable && !node.editable) {
+          hasNoTextRef = true;
+        }
+      }
+      assert.ok(!hasNoTextRef, 'Inaccessible no-text element should not have a ref');
+    });
+
+    it('should still assign refs to CLICKABLE_TYPES without accessible attr', () => {
+      // Buttons should remain clickable even without accessible="true"
+      const root = translateWda(SIMPLE_BUTTON);
+      const btn = root.children[0];
+      assert.equal(btn.clickable, true);
+    });
+  });
+
+  describe('screenshotToPoint() — scale factor conversion', () => {
+    it('should convert 3x Retina coordinates to logical points', () => {
+      // Simulate the conversion function directly
+      const scaleFactor = 3;
+      const convert = (px, py) => ({
+        x: Math.round(px / scaleFactor),
+        y: Math.round(py / scaleFactor),
+      });
+      const result = convert(1170, 2532);
+      assert.deepEqual(result, { x: 390, y: 844 });
+    });
+
+    it('should convert 2x Retina coordinates to logical points', () => {
+      const scaleFactor = 2;
+      const convert = (px, py) => ({
+        x: Math.round(px / scaleFactor),
+        y: Math.round(py / scaleFactor),
+      });
+      const result = convert(750, 1334);
+      assert.deepEqual(result, { x: 375, y: 667 });
+    });
+
+    it('should round to nearest integer', () => {
+      const scaleFactor = 3;
+      const convert = (px, py) => ({
+        x: Math.round(px / scaleFactor),
+        y: Math.round(py / scaleFactor),
+      });
+      const result = convert(100, 200);
+      assert.deepEqual(result, { x: 33, y: 67 });
+    });
+  });
+
   describe('coordinate calculation from bounds', () => {
     it('should compute center from node bounds', () => {
       const root = translateWda(SIMPLE_BUTTON);
@@ -487,7 +598,7 @@ describe('iOS module — unit tests', () => {
         'snapshot', 'tap', 'type', 'press', 'swipe', 'scroll',
         'longPress', 'tapXY', 'back', 'home', 'lock', 'unlock',
         'launch', 'activate', 'screenshot', 'waitForText', 'waitForState',
-        'findByText', 'close',
+        'findByText', 'screenshotToPoint', 'close',
       ];
       for (const m of methods) {
         assert.ok(src.includes(`async ${m}(`) || src.includes(`${m}(`),

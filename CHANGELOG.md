@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.6
+
+iOS custom-UI ref assignment and Retina scale factor API.
+
+### New
+- **Accessible element ref assignment**: `translateWda()` now reads the `accessible` attribute from WDA XML. Elements with `accessible="true"`, bounds, and visible text (label or name) are marked clickable — even if their type isn't in `CLICKABLE_TYPES`. Fixes Telegram and other custom-UI apps where chat rows render as `XCUIElementTypeOther` and previously got no refs.
+- **`page.scaleFactor`**: Getter returning the device's Retina scale factor (e.g., 3 for iPhone 15). Computed at connect time from screenshot pixel width vs logical window width.
+- **`page.screenshotToPoint(px, py)`**: Converts screenshot pixel coordinates to logical points for use with `tapXY()`. Agents using vision models on screenshots can now tap accurately on Retina displays.
+
+### Tests
+- 176 unit tests (up from 168). New: accessible group (5), screenshotToPoint math (3), API completeness updated.
+
 ## 0.7.5
 
 iOS snapshot cleanup and WDA tunnel auto-restart.

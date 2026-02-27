@@ -223,6 +223,7 @@ await page.launch('com.google.android.apps.maps');
 | **Wait for state** | `page.waitForText('Settings', 5000)` — poll until text appears |
 | **Unlock device** | `page.unlock(passcode)` — unlock with passcode |
 | **Find by text** | `page.findByText('Melanie')` — returns ref for a text match (no device call) |
+| **Scale factor** | `page.scaleFactor` — Retina scale (e.g., 3 for iPhone 15). `page.screenshotToPoint(px, py)` converts screenshot pixels to logical points for `tapXY()`. |
 
 ### Quick start
 
@@ -248,7 +249,7 @@ page.close();
 
 ### Architecture
 
-WDA XML is translated to a common node tree, then run through the same prune/format pipeline as Android — identical YAML output. Snapshot cleanup: keyboard subtrees stripped (agent uses `type()`), Unicode directional markers removed, iOS file paths stripped, internal class names filtered.
+WDA XML is translated to a common node tree, then run through the same prune/format pipeline as Android — identical YAML output. Custom-UI elements (e.g., Telegram chat rows rendered as `XCUIElementTypeOther`) get refs when iOS marks them `accessible="true"` with visible text. Snapshot cleanup: keyboard subtrees stripped (agent uses `type()`), Unicode directional markers removed, iOS file paths stripped, internal class names filtered.
 
 ```
 WDA XML  →  translateWda()  →  cleanText + strip keyboard/paths  →  node tree  →  prune()  →  formatTree()  →  YAML

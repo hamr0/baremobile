@@ -429,7 +429,7 @@ multis has a skill system using bare-agent for LLM tool calling. baremobile's ba
 
 ## Tests
 
-~168 tests (unit + integration). Run all:
+~176 tests (unit + integration). Run all:
 
 ```bash
 node --test test/unit/*.test.js test/integration/*.test.js
@@ -445,7 +445,7 @@ Test files:
 | `test/unit/interact.test.js` | buildGrid, error handling |
 | `test/unit/termux.test.js` | Termux detection, device discovery |
 | `test/unit/termux-api.test.js` | Module exports, isAvailable, ENOENT |
-| `test/unit/ios.test.js` | translateWda, prune pipeline, CLASS_MAP, keyboard/Unicode/path stripping |
+| `test/unit/ios.test.js` | translateWda, prune pipeline, CLASS_MAP, keyboard/Unicode/path stripping, accessible attr refs, scale factor |
 | `test/unit/usbmux.test.js` | usbmuxd protocol, proxy |
 | `test/unit/mcp.test.js` | MCP server tools |
 | `test/unit/setup.test.js` | Setup wizard |
@@ -620,6 +620,7 @@ Same page-object pattern as Android, verified on physical iPhone.
 | 3.3 | iOS CLI + MCP integration -- dual-platform MCP, setup wizard, cert tracking |
 | 3.4 | iOS navigation fixes -- W3C Actions tap, screen-size-aware back(), launch error checking |
 | 3.5 | iOS snapshot cleanup + auto-restart -- keyboard/Unicode/path stripping, internal name filter, findByText, WDA tunnel auto-restart |
+| 3.6 | iOS custom-UI refs + scale factor -- `accessible` attr for Telegram-style apps, Retina `scaleFactor` + `screenshotToPoint()` |
 | 3 | MCP server -- 11 tools, JSON-RPC 2.0 over stdio |
 | 4 | CLI session mode -- daemon, logcat, full command set |
 

@@ -202,6 +202,7 @@ export function translateWda(xml) {
     const label = cleanText(attrs.label || '');
     const name = cleanText(attrs.name || '');
     const value = cleanText(attrs.value || '');
+    const isAccessible = attrs.accessible === 'true';
 
     const isSwitch = type === 'XCUIElementTypeSwitch' || type === 'XCUIElementTypeToggle';
 
@@ -212,7 +213,7 @@ export function translateWda(xml) {
       text: invisible ? '' : (label || ''),
       contentDesc: invisible ? '' : ((!label && name) ? name : ''),
       bounds: invisible ? null : bounds,
-      clickable: invisible ? false : CLICKABLE_TYPES.has(type),
+      clickable: invisible ? false : (CLICKABLE_TYPES.has(type) || !!(isAccessible && bounds && (label || name))),
       scrollable: invisible ? false : SCROLLABLE_TYPES.has(type),
       editable: invisible ? false : EDITABLE_TYPES.has(type),
       enabled: attrs.enabled !== 'false',
@@ -306,12 +307,20 @@ export async function connect(opts = {}) {
   let _refMap = new Map();
   let _navBackNode = null;
 
-  // Cache screen dimensions for back() fallback
+  // Cache screen dimensions and compute Retina scale factor
+  let _screenW = 390; // safe default
   let _screenH = 800; // safe default
+  let _scaleFactor = 3; // safe default for modern iPhones
   try {
     const sz = await wdaGet(`/session/${sid}/window/size`);
+    if (sz.value?.width) _screenW = sz.value.width;
     if (sz.value?.height) _screenH = sz.value.height;
-  } catch { /* use default */ }
+    const ssResult = await wdaGet('/screenshot');
+    const screenshotBuf = Buffer.from(ssResult.value, 'base64');
+    // PNG header: width at bytes 16-19 (big-endian)
+    const pngWidth = screenshotBuf.readUInt32BE(16);
+    _scaleFactor = pngWidth / _screenW;
+  } catch { /* use defaults */ }
 
   // W3C Actions tap — synthesizes raw touch event, works where /wda/tap silently fails
   async function wdaTap(x, y) {
@@ -333,6 +342,10 @@ export async function connect(opts = {}) {
     serial: 'ios',
     platform: 'ios',
     baseUrl,
+    get scaleFactor() { return _scaleFactor; },
+    screenshotToPoint(px, py) {
+      return { x: Math.round(px / _scaleFactor), y: Math.round(py / _scaleFactor) };
+    },
 
     async snapshot() {
       const r = await wdaGet('/source');
