@@ -6,6 +6,9 @@ Setup wizard hardening — graceful error handling, AltServer anisette fallback,
 
 ### Fixed
 - **pkexec cancel**: `waitForOutput()` now listens for process `close` event. Cancelled pkexec rejects instantly instead of waiting 20s timeout. Shows "authentication was cancelled" instead of raw error dump.
+- **Tunnel output race**: Wait for `RSD Port` in tunnel output instead of `tunnel created` — fixes race where tunnel appeared ready before port was available.
+- **usbmuxd not running**: Detect missing usbmuxd service, exit non-zero with actionable message instead of cryptic ENOENT.
+- **No USB device**: Prompt user to connect USB instead of failing with raw adb error.
 - **AltServer 502**: Anisette server `armconverter.com` returns 502 intermittently. Setup now auto-retries with `ani.sidestore.io` fallback. Configurable via `ALTSERVER_ANISETTE_SERVER` env var.
 - **AltServer cached 2FA**: When Apple session is cached (no 2FA needed), AltServer installs directly. Setup now detects "successfully installed" as success, skips 2FA prompt.
 - **AltServer wrong password**: Shows "Double-check your Apple ID email and password" instead of generic server error.
@@ -13,6 +16,7 @@ Setup wizard hardening — graceful error handling, AltServer anisette fallback,
 - **AltServer stale processes**: Kills leftover AltServer processes before each signing attempt.
 - **WDA untrusted profile**: Detects "not been explicitly trusted" error, prompts user to trust cert, retries WDA launch without redoing tunnel/DDI/forward.
 - **Setup hangs on exit**: `unref()` WDA/tunnel child stdio pipes and usbmux forward server so Node exits cleanly.
+- **Setup pkexec paths**: Use full binary paths for `pkexec` commands — partial paths failed on some distros.
 - **Integration tests fail without device**: `cli.test.js` now skips with "No ADB device available" (same as `connect.test.js`).
 
 ### Changed
