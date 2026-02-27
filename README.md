@@ -19,7 +19,7 @@
 
 baremobile gives AI agents full control of real mobile devices -- read the screen, tap, type, swipe, launch apps, send SMS, take photos. The screen comes back as a pruned accessibility snapshot with `[ref=N]` markers; the agent picks a ref and acts on it.
 
-No Appium. No Java server. No Espresso. Zero runtime dependencies.
+No Appium. No Java server. No Espresso. Zero runtime dependencies. Same patterns as [barebrowse](https://www.npmjs.com/package/barebrowse) -- agents learn one API for both web and mobile.
 
 **Android** -- full screen control via ADB, plus on-device APIs (SMS, calls, GPS, camera) via Termux. Use it for QA, as a personal AI assistant, or for remote device management.
 
@@ -131,7 +131,7 @@ Settings, Messages, Chrome, Gmail, Files, Camera, Calculator, Contacts, Play Sto
 
 ## The bare ecosystem
 
-Three vanilla JS modules. Zero dependencies. Same patterns as [barebrowse](https://www.npmjs.com/package/barebrowse) -- agents learn one API for both web and mobile.
+Three vanilla JS modules. Zero dependencies. Same API patterns.
 
 | | [**bareagent**](https://npmjs.com/package/bare-agent) | [**barebrowse**](https://npmjs.com/package/barebrowse) | [**baremobile**](https://npmjs.com/package/baremobile) |
 |---|---|---|---|
@@ -139,6 +139,17 @@ Three vanilla JS modules. Zero dependencies. Same patterns as [barebrowse](https
 | **How** | Goal in → coordinated actions out | URL in → pruned snapshot out | Screen in → pruned snapshot out |
 | **Replaces** | LangChain, CrewAI, AutoGen | Playwright, Selenium, Puppeteer | Appium, Espresso, UIAutomator2 |
 | **Interfaces** | Library · CLI · subprocess | Library · CLI · MCP | Library · CLI · MCP |
+| **Solo or together** | Orchestrates both as tools | Works standalone | Works standalone |
+
+**What you can build:**
+
+- **Headless automation** — scrape sites, fill forms, extract data, monitor pages on a schedule
+- **QA & testing** — automated test suites for web and Android apps without heavyweight frameworks
+- **Personal AI assistants** — chatbots that browse the web or control your phone on your behalf
+- **Remote device control** — manage Android devices over WiFi, including on-device via Termux
+- **Agentic workflows** — multi-step tasks where an AI plans, browses, and acts across web and mobile
+
+**Why this exists:** Most automation stacks ship 200MB of opinions before you write a line of code. These don't. Install, import, go.
 
 ## License
 
