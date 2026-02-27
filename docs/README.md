@@ -31,6 +31,7 @@ Reserved for feature-specific deep dives as complexity grows.
 ### 04-process/ — How to work with this system
 | File | What |
 |------|------|
+| [cli-guide.md](04-process/cli-guide.md) | **Complete CLI reference** — all commands, options, setup wizard steps, iOS prerequisites, JSON mode, troubleshooting |
 | [dev-setup.md](04-process/dev-setup.md) | All packages and setup by module: Core ADB, Termux ADB, Termux:API, iOS. Use `baremobile setup` for interactive wizard. |
 | [testing.md](04-process/testing.md) | Test suites by module, validation status, writing new tests |
 | [dev-workflow.md](04-process/dev-workflow.md) | Feature workflow, code style, commit conventions |
