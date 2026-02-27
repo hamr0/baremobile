@@ -317,14 +317,16 @@ export async function connect(opts = {}) {
     },
 
     async tap(ref) {
-      const node = _refMap.get(ref);
+      const key = typeof ref === 'string' ? Number(ref) : ref;
+      const node = _refMap.get(key);
       if (!node) throw new Error(`tap(${ref}): no element with that ref`);
       const { x, y } = boundsCenter(node.bounds);
       await wdaPost(`/session/${sid}/wda/tap`, { x, y });
     },
 
     async type(ref, text, typeOpts = {}) {
-      const node = _refMap.get(ref);
+      const key = typeof ref === 'string' ? Number(ref) : ref;
+      const node = _refMap.get(key);
       if (!node) throw new Error(`type(${ref}): no element with that ref`);
 
       // Coordinate tap to focus
@@ -371,7 +373,8 @@ export async function connect(opts = {}) {
     },
 
     async scroll(ref, direction) {
-      const node = _refMap.get(ref);
+      const key = typeof ref === 'string' ? Number(ref) : ref;
+      const node = _refMap.get(key);
       if (!node) throw new Error(`scroll(${ref}): no element with that ref`);
       const { x, y } = boundsCenter(node.bounds);
       const b = node.bounds;
@@ -395,7 +398,8 @@ export async function connect(opts = {}) {
     },
 
     async longPress(ref) {
-      const node = _refMap.get(ref);
+      const key = typeof ref === 'string' ? Number(ref) : ref;
+      const node = _refMap.get(key);
       if (!node) throw new Error(`longPress(${ref}): no element with that ref`);
       const { x, y } = boundsCenter(node.bounds);
       await wdaPost(`/session/${sid}/wda/touchAndHold`, { x, y, duration: 1.0 });
@@ -476,7 +480,8 @@ export async function connect(opts = {}) {
       const start = Date.now();
       while (Date.now() - start < timeout) {
         const snap = await page.snapshot();
-        const node = _refMap.get(ref);
+        const wKey = typeof ref === 'string' ? Number(ref) : ref;
+        const node = _refMap.get(wKey);
         if (node) {
           const has = state === 'enabled' ? node.enabled
             : state === 'disabled' ? !node.enabled
