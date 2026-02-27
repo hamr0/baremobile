@@ -32,8 +32,7 @@ Reserved for feature-specific deep dives as complexity grows.
 | File | What |
 |------|------|
 | [cli-guide.md](04-process/cli-guide.md) | **Complete CLI reference** — all commands, options, setup wizard steps, iOS prerequisites, JSON mode, troubleshooting |
-| [dev-setup.md](04-process/dev-setup.md) | All packages and setup by module: Core ADB, Termux ADB, Termux:API, iOS. Use `baremobile setup` for interactive wizard. |
-| [testing.md](04-process/testing.md) | Test suites by module, validation status, writing new tests |
+| [dev-setup.md](04-process/dev-setup.md) | **Single reference** — all prerequisites, environment setup, and tests split by platform (Android + iOS). Package summaries, emulator setup, test suites, E2E flows, writing new tests. |
 | [dev-workflow.md](04-process/dev-workflow.md) | Feature workflow, code style, commit conventions |
 | [definition-of-done.md](04-process/definition-of-done.md) | Checklist for completing a feature or phase |
 | [llm-prompts.md](04-process/llm-prompts.md) | System prompts and tool descriptions for agent integration |
