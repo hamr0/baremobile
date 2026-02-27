@@ -78,7 +78,7 @@ export function findPython() {
  * @returns {string}
  */
 function pmd3(args) {
-  return execFileSync('pymobiledevice3', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+  return execFileSync('pymobiledevice3', args, { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'], maxBuffer: 10 * 1024 * 1024 });
 }
 
 /**

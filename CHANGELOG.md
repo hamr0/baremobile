@@ -1,5 +1,9 @@
 # Changelog
 
+## 0.7.2
+
+- **fix**: `findWdaBundle()` ENOBUFS — `pymobiledevice3 apps list` returns ~3.5MB JSON, exceeded default 1MB `maxBuffer`. Increased to 10MB.
+
 ## 0.7.1
 
 Unified `baremobile setup` wizard — one command for Android and iOS setup on Linux, macOS, and WSL.
