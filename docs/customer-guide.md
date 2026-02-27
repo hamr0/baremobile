@@ -255,7 +255,7 @@ WDA XML is translated to a common node tree, then run through the same prune/for
 WDA XML  →  translateWda()  →  cleanText + strip keyboard/paths  →  node tree  →  prune()  →  formatTree()  →  YAML
 ```
 
-Actions use W3C Actions API touch sequences at element bound coordinates — more reliable than WDA's `/wda/tap` endpoint, which silently fails on some elements. At runtime, all communication is pure HTTP to WDA. Python (pymobiledevice3) is only needed during setup for the USB tunnel, DDI mount, and WDA launch. The MCP server auto-reconnects if WDA dies mid-session, and auto-restarts the full WDA tunnel on second failure (no manual `baremobile setup` needed).
+Actions use W3C Actions API touch sequences at element bound coordinates — more reliable than WDA's `/wda/tap` endpoint, which silently fails on some elements. At runtime, all communication is pure HTTP to WDA. Python (pymobiledevice3) is only needed during setup for the USB tunnel, DDI mount, and WDA launch. The MCP server auto-reconnects if WDA dies mid-session, and auto-restarts WDA on second failure — tier-1 restarts just WDA in ~3 seconds using stored RSD (no pkexec popup, no manual intervention), tier-2 falls back to full tunnel restart if needed.
 
 ### Requirements
 

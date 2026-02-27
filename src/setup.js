@@ -274,15 +274,23 @@ export function parseWdaBundleFromJson(json) {
   } catch { return null; }
 }
 
-function savePids(tunnelPid, wdaPid, fwdPid) {
-  writeFileSync(PID_FILE, `${tunnelPid} ${wdaPid} ${fwdPid}`);
+function savePids(tunnelPid, wdaPid, fwdPid, rsdAddr, rsdPort) {
+  let content = `${tunnelPid} ${wdaPid} ${fwdPid}`;
+  if (rsdAddr && rsdPort) content += `\n${rsdAddr} ${rsdPort}`;
+  writeFileSync(PID_FILE, content);
 }
 
-function loadPids() {
+export function loadPids() {
   try {
     const raw = readFileSync(PID_FILE, 'utf8').trim();
-    const [tunnel, wda, fwd] = raw.split(/\s+/).map(Number);
-    return { tunnel, wda, fwd };
+    const lines = raw.split('\n');
+    const [tunnel, wda, fwd] = lines[0].split(/\s+/).map(Number);
+    let rsdAddr = null, rsdPort = null;
+    if (lines.length > 1) {
+      const parts = lines[1].trim().split(/\s+/);
+      if (parts.length >= 2) { rsdAddr = parts[0]; rsdPort = parts[1]; }
+    }
+    return { tunnel, wda, fwd, rsdAddr, rsdPort };
   } catch { return null; }
 }
 
@@ -735,7 +743,7 @@ asyncio.run(main())
   }
 
   // Save PIDs for teardown
-  savePids(tunnelChild.pid, wdaChild.pid, process.pid);
+  savePids(tunnelChild.pid, wdaChild.pid, process.pid, rsd.rsdAddr, rsd.rsdPort);
 
   // Unref children + their pipes + forwarder so Node can exit
   tunnelChild.stdout.unref();
@@ -779,7 +787,7 @@ asyncio.run(main())
         if (status.value?.ready) { wdaReady = true; break; }
       } catch { /* retry */ }
     }
-    savePids(tunnelChild.pid, retryChild.pid, process.pid);
+    savePids(tunnelChild.pid, retryChild.pid, process.pid, rsd.rsdAddr, rsd.rsdPort);
     retryChild.stdout.unref();
     retryChild.stderr.unref();
     retryChild.unref();
@@ -924,58 +932,80 @@ export async function restartWda(log = () => {}) {
   const host = detectHost();
   const pids = loadPids();
 
-  // Tier 1: Check if tunnel is still alive — only restart WDA + forward
-  if (pids) {
+  // Tier 1: WDA-only restart if tunnel alive and RSD stored
+  if (pids && pids.rsdAddr && pids.rsdPort) {
     let tunnelAlive = false;
-    try { process.kill(pids.tunnel, 0); tunnelAlive = true; } catch { /* dead */ }
+    try {
+      process.kill(pids.tunnel, 0);
+      tunnelAlive = true; // we own it (shouldn't happen — tunnel is root)
+    } catch (err) {
+      // EPERM = alive but root-owned (expected), ESRCH = dead
+      if (err.code === 'EPERM') tunnelAlive = true;
+    }
 
     if (tunnelAlive) {
       log('Tunnel alive — restarting WDA only...');
       // Kill WDA and forward
       try { process.kill(pids.wda, 'SIGKILL'); } catch { /* already dead */ }
       try { process.kill(pids.fwd, 'SIGKILL'); } catch { /* already dead */ }
-      // Kill stale port 8100
       try { execFileSync('fuser', ['-k', '8100/tcp'], { stdio: 'pipe' }); } catch { /* ignore */ }
       await new Promise(r => setTimeout(r, 500));
 
-      // Re-read tunnel output from stored RSD info — we need rsd addr/port
-      // Since we don't store RSD info, re-discover via pgrep
-      let rsdAddr, rsdPort;
-      try {
-        const out = execFileSync('pgrep', ['-af', 'pymobiledevice3.*start-tunnel'], {
-          encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'],
-        }).trim();
-        // Parse --rsd or RSD Address from /proc/PID/fd output isn't reliable.
-        // Instead, check /status on the existing tunnel port — if WDA was on 8100,
-        // we need tunnel's RSD to relaunch WDA.
-        // Simpler approach: read from netstat or just try known RSD patterns
-      } catch { /* ignore */ }
-
-      // We can't easily recover RSD addr/port without storing it.
-      // Fall through to tier 2 if we can't relaunch WDA quickly.
-      // But first try: the tunnel may still be forwarding — just relaunch WDA via pymobiledevice3
       const bundle = findWdaBundle();
       const py = findPython();
       if (bundle && py) {
-        // Try to get RSD from tunnel process cmdline
-        try {
-          const cmdline = readFileSync(`/proc/${pids.tunnel}/cmdline`, 'utf8');
-          const parts = cmdline.split('\0');
-          const rsdIdx = parts.indexOf('--rsd');
-          if (rsdIdx === -1) {
-            // Tunnel doesn't use --rsd flag directly — it outputs RSD info.
-            // We need to store RSD info. For now, fall through to tier 2.
-            throw new Error('no --rsd in cmdline');
+        const wdaChild = spawn(py, ['-c', `
+import asyncio
+from pymobiledevice3.remote.remote_service_discovery import RemoteServiceDiscoveryService
+from pymobiledevice3.services.dvt.testmanaged.xcuitest import XCUITestService
+async def main():
+    rsd = RemoteServiceDiscoveryService(('${pids.rsdAddr}', ${pids.rsdPort}))
+    await rsd.connect()
+    XCUITestService(rsd).run('${bundle}')
+asyncio.run(main())
+`], { stdio: ['pipe', 'pipe', 'pipe'], detached: true });
+        wdaChild.stdout.on('data', () => {});
+        wdaChild.stderr.on('data', () => {});
+
+        // Re-forward via usbmux
+        const device = await findUsbDevice();
+        if (device) {
+          const { forward } = await import('./usbmux.js');
+          let fwdServer;
+          try {
+            fwdServer = await forward(device.deviceId, 8100, 8100);
+          } catch (err) {
+            log(`Port forward failed: ${err.message}`);
           }
-        } catch {
-          // Can't recover RSD — fall through to full restart
-          log('Cannot recover RSD info — doing full restart...');
+
+          // Poll /status
+          let ready = false;
+          for (let i = 0; i < 3; i++) {
+            await new Promise(r => setTimeout(r, 2000));
+            try {
+              const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
+              const status = await res.json();
+              if (status.value?.ready) { ready = true; break; }
+            } catch { /* retry */ }
+          }
+
+          if (ready) {
+            savePids(pids.tunnel, wdaChild.pid, process.pid, pids.rsdAddr, pids.rsdPort);
+            wdaChild.stdout.unref();
+            wdaChild.stderr.unref();
+            wdaChild.unref();
+            if (fwdServer) fwdServer.unref();
+            log('WDA restarted (tier-1, no pkexec)');
+            return { baseUrl: 'http://localhost:8100' };
+          }
         }
+        // Tier-1 failed — kill spawned WDA before falling through
+        try { wdaChild.kill(); } catch { /* ignore */ }
       }
     }
 
-    // Kill everything for full restart
-    log('Killing existing processes...');
+    // Tier-1 failed or not possible — kill everything for full restart
+    log('Tier-1 failed — doing full restart...');
     const killCmd = host.os === 'wsl' ? 'sudo' : host.os === 'macos' ? 'sudo' : 'pkexec';
     try { execFileSync(killCmd, ['kill', '-9', String(pids.tunnel)], { stdio: 'pipe' }); } catch { /* ignore */ }
     try { process.kill(pids.wda, 'SIGKILL'); } catch { /* ignore */ }
@@ -1102,7 +1132,7 @@ asyncio.run(main())
   }
 
   // Save PIDs and unref
-  savePids(tunnelChild.pid, wdaChild.pid, process.pid);
+  savePids(tunnelChild.pid, wdaChild.pid, process.pid, rsd.rsdAddr, rsd.rsdPort);
   tunnelChild.stdout.unref();
   tunnelChild.stderr.unref();
   tunnelChild.unref();

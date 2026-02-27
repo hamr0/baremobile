@@ -333,7 +333,7 @@ MCP server (`mcp-server.js`) for Claude Code and other MCP clients.
 claude mcp add baremobile -- node /path/to/baremobile/mcp-server.js
 ```
 
-### Tools (10, dual-platform)
+### Tools (11, dual-platform)
 
 All tools accept optional `platform: "android" | "ios"` (default: android).
 
@@ -349,6 +349,7 @@ All tools accept optional `platform: "android" | "ios"` (default: android).
 | `launch` | `pkg`, `platform?` | `'ok'` |
 | `screenshot` | `platform?` | base64 PNG |
 | `back` | `platform?` | `'ok'` |
+| `find_by_text` | `text`, `platform?` | ref number or null |
 
 Action tools return `'ok'` — call `snapshot` to observe the result. Large snapshots saved to `.baremobile/screen-{timestamp}.yml` when exceeding `maxChars` (default 30,000). iOS cert warning prepended to first snapshot if cert is >6 days old.
 

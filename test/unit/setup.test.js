@@ -5,7 +5,8 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { detectHost, which, parseTunnelOutput, parseWdaBundleFromJson } from '../../src/setup.js';
+import { writeFileSync, unlinkSync } from 'node:fs';
+import { detectHost, which, parseTunnelOutput, parseWdaBundleFromJson, loadPids } from '../../src/setup.js';
 
 describe('detectHost', () => {
   it('returns an object with os and pkg', () => {
@@ -88,5 +89,34 @@ describe('parseWdaBundleFromJson', () => {
 
   it('returns null for empty object', () => {
     assert.equal(parseWdaBundleFromJson('{}'), null);
+  });
+});
+
+describe('loadPids', () => {
+  const PID_FILE = '/tmp/baremobile-ios-pids';
+
+  it('parses 2-line format with RSD', () => {
+    writeFileSync(PID_FILE, '1234 5678 9012\nfd7a:e21d:8e41::1 61024');
+    const result = loadPids();
+    assert.deepEqual(result, {
+      tunnel: 1234, wda: 5678, fwd: 9012,
+      rsdAddr: 'fd7a:e21d:8e41::1', rsdPort: '61024',
+    });
+    unlinkSync(PID_FILE);
+  });
+
+  it('parses legacy 1-line format with null RSD', () => {
+    writeFileSync(PID_FILE, '1234 5678 9012');
+    const result = loadPids();
+    assert.deepEqual(result, {
+      tunnel: 1234, wda: 5678, fwd: 9012,
+      rsdAddr: null, rsdPort: null,
+    });
+    unlinkSync(PID_FILE);
+  });
+
+  it('returns null when file missing', () => {
+    try { unlinkSync(PID_FILE); } catch { /* already gone */ }
+    assert.equal(loadPids(), null);
   });
 });

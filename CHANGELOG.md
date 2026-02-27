@@ -1,5 +1,17 @@
 # Changelog
 
+## 0.7.7
+
+WDA-only restart with stored RSD — no pkexec popup.
+
+### Changed
+- **`restartWda()` tier-1**: Stores RSD address/port in PID file (second line). On WDA death, restarts just WDA + port forward in ~3 seconds using stored RSD — no pkexec popup, no tunnel restart. Tier-2 (full restart) only triggers if RSD missing or tunnel dead.
+- **PID file format**: Extended to 2 lines — `<tunnelPid> <wdaPid> <fwdPid>\n<rsdAddr> <rsdPort>`. `loadPids()` is backward-compatible with legacy 1-line format.
+- **`loadPids()` exported**: Now available for testing and external use.
+
+### Tests
+- 179 unit tests (up from 176). New: loadPids 2-line format (1), legacy 1-line format (1), missing file (1).
+
 ## 0.7.6
 
 iOS custom-UI ref assignment and Retina scale factor API.
