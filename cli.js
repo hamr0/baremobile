@@ -30,6 +30,7 @@ function errOut(msg, exitCode = 1) {
 
 /** Build the UI object for setup wizards. */
 function createUi() {
+  let failed = false;
   function prompt(question) {
     const rl = createInterface({ input: process.stdin, output: process.stdout });
     return new Promise((resolve) => {
@@ -44,9 +45,10 @@ function createUi() {
     waitForEnter: (msg) => prompt(`${msg} [press Enter to continue] `),
     write: (s) => process.stdout.write(s),
     ok: (s) => process.stdout.write(`\x1b[32m✓\x1b[0m ${s}\n`),
-    fail: (s) => process.stdout.write(`\x1b[31m✗\x1b[0m ${s}\n`),
+    fail: (s) => { failed = true; process.stdout.write(`\x1b[31m✗\x1b[0m ${s}\n`); },
     warn: (s) => process.stdout.write(`\x1b[33m!\x1b[0m ${s}\n`),
     step: (n, s) => process.stdout.write(`\n\x1b[33m[${n}]\x1b[0m ${s}\n`),
+    get failed() { return failed; },
   };
 }
 
@@ -105,9 +107,13 @@ if (args.includes('--daemon-internal')) {
 } else if (cmd === 'logcat') {
   await cmdProxy('logcat', { filter: parseFlag('--filter'), clear: hasFlag('--clear') });
 } else if (cmd === 'setup') {
-  await setupMenu(createUi());
+  const ui = createUi();
+  await setupMenu(ui);
+  if (ui.failed) process.exit(1);
 } else if (cmd === 'ios' && args[1] === 'resign') {
-  await renewCert(createUi());
+  const ui = createUi();
+  await renewCert(ui);
+  if (ui.failed) process.exit(1);
 } else if (cmd === 'ios' && args[1] === 'teardown') {
   await teardown();
 } else {

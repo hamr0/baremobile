@@ -136,10 +136,14 @@ function waitForOutput(child, regex, timeoutMs = 15000) {
  * @returns {Promise<{deviceId: number, serial: string}>}
  */
 async function findUsbDevice() {
-  const { listDevices } = await import('./usbmux.js');
-  const devices = await listDevices();
-  if (devices.length === 0) return null;
-  return devices[0]; // { deviceId, serial }
+  try {
+    const { listDevices } = await import('./usbmux.js');
+    const devices = await listDevices();
+    if (devices.length === 0) return null;
+    return devices[0]; // { deviceId, serial }
+  } catch {
+    return null; // usbmuxd not running or not available
+  }
 }
 
 /**
