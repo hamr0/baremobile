@@ -484,10 +484,17 @@ export async function startWda(ui, prefix) {
 
   // Step 1: Check USB device
   ui.step(s(1), 'Checking USB device');
-  const device = await findUsbDevice();
+  let device = await findUsbDevice();
   if (!device) {
-    ui.fail('No USB device connected. Connect iPhone first.');
-    return;
+    ui.warn('No USB device detected');
+    ui.write('   Connect iPhone via USB cable.\n');
+    ui.write('   Tap "Trust" on the device if prompted.\n');
+    await ui.waitForEnter('Once connected');
+    device = await findUsbDevice();
+    if (!device) {
+      ui.fail('Still no device. Check cable and trust prompt.');
+      return;
+    }
   }
   ui.ok(`Device: ${device.serial}`);
 
@@ -679,10 +686,17 @@ export async function renewCert(ui) {
 
   // Step 2: Check USB device
   ui.step(2, 'Checking USB device');
-  const device = await findUsbDevice();
+  let device = await findUsbDevice();
   if (!device) {
-    ui.fail('No USB device connected. Connect iPhone first.');
-    return;
+    ui.warn('No USB device detected');
+    ui.write('   Connect iPhone via USB cable.\n');
+    ui.write('   Tap "Trust" on the device if prompted.\n');
+    await ui.waitForEnter('Once connected');
+    device = await findUsbDevice();
+    if (!device) {
+      ui.fail('Still no device. Check cable and trust prompt.');
+      return;
+    }
   }
   ui.ok(`Device: ${device.serial}`);
 
