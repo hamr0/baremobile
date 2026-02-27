@@ -268,7 +268,24 @@ async function handleMessage(msg) {
   if (method === 'tools/call') {
     const { name, arguments: args } = params;
     try {
-      const result = await handleToolCall(name, args || {});
+      let result;
+      try {
+        result = await handleToolCall(name, args || {});
+      } catch (err) {
+        // Auto-reconnect: if WDA/device connection died, clear cache and retry once
+        const msg = err?.message || '';
+        const isConnErr = err?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET'
+          || msg.includes('fetch failed') || msg.includes('ECONNREFUSED')
+          || msg.includes('ECONNRESET') || msg.includes('UND_ERR');
+        const platform = (args || {}).platform || 'android';
+        if (isConnErr && _pages[platform]) {
+          try { _pages[platform].close(); } catch { /* ignore */ }
+          _pages[platform] = null;
+          result = await handleToolCall(name, args || {});
+        } else {
+          throw err;
+        }
+      }
       // Screenshot returns image content type
       if (result && result._image) {
         return jsonrpcResponse(id, {
@@ -279,8 +296,14 @@ async function handleMessage(msg) {
         content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result) }],
       });
     } catch (err) {
+      const msg = err?.message || '';
+      const isConnErr = err?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET'
+        || msg.includes('fetch failed') || msg.includes('ECONNREFUSED');
+      const hint = isConnErr
+        ? ' WDA/ADB may be down. Reconnect USB and run `npx baremobile setup`.'
+        : '';
       return jsonrpcResponse(id, {
-        content: [{ type: 'text', text: `Error: ${err.message}` }],
+        content: [{ type: 'text', text: `Error: ${msg}${hint}` }],
         isError: true,
       });
     }

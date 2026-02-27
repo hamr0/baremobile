@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.4
+
+iOS navigation fixes — tap, back, launch, and WDA resilience.
+
+### Fixed
+- **iOS tap silently failing**: Switched from `/wda/tap` to W3C Actions API (`/session/{sid}/actions`) for all taps. WDA's `/wda/tap` endpoint silently fails on many elements; W3C touch action sequence works on the same coordinates. Affects `tap()`, `type()` focus tap, `back()` navbar tap, and `tapXY()`.
+- **back() hardcoded y-coordinate**: Swipe fallback used `y=400` regardless of device. Now queries screen size at connect time via `/session/{sid}/window/size` and uses `height/2`.
+- **launch() silent failure**: WDA returns error JSON (e.g., "device locked") but code ignored it and returned "ok". Now throws with the error message. Same fix applied to `activate()`.
+- **WDA dies with no recovery**: MCP server cached dead iOS page forever. Now auto-detects connection errors (ECONNREFUSED, ECONNRESET, fetch failures), clears cache, retries once. On second failure, returns actionable error: "Reconnect USB and run `npx baremobile setup`."
+
+### Changed
+- `longPress()` unchanged — still uses `/wda/touchAndHold` (not reported broken).
+
 ## 0.7.3
 
 Setup wizard hardening — graceful error handling, AltServer anisette fallback, output filtering.

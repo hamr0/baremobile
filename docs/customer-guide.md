@@ -253,7 +253,7 @@ WDA XML is translated to a common node tree, then run through the same prune/for
 WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
 ```
 
-Actions use coordinate taps derived from element bounds — no WDA predicate lookups. At runtime, all communication is pure HTTP to WDA. Python (pymobiledevice3) is only needed during setup for the USB tunnel, DDI mount, and WDA launch.
+Actions use W3C Actions API touch sequences at element bound coordinates — more reliable than WDA's `/wda/tap` endpoint, which silently fails on some elements. At runtime, all communication is pure HTTP to WDA. Python (pymobiledevice3) is only needed during setup for the USB tunnel, DDI mount, and WDA launch. The MCP server auto-reconnects if WDA dies mid-session.
 
 ### Requirements
 

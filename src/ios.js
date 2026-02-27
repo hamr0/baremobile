@@ -301,6 +301,29 @@ export async function connect(opts = {}) {
   let _refMap = new Map();
   let _navBackNode = null;
 
+  // Cache screen dimensions for back() fallback
+  let _screenH = 800; // safe default
+  try {
+    const sz = await wdaGet(`/session/${sid}/window/size`);
+    if (sz.value?.height) _screenH = sz.value.height;
+  } catch { /* use default */ }
+
+  // W3C Actions tap — synthesizes raw touch event, works where /wda/tap silently fails
+  async function wdaTap(x, y) {
+    await wdaPost(`/session/${sid}/actions`, {
+      actions: [{
+        type: 'pointer', id: 'finger1',
+        parameters: { pointerType: 'touch' },
+        actions: [
+          { type: 'pointerMove', duration: 0, x, y },
+          { type: 'pointerDown', button: 0 },
+          { type: 'pause', duration: 50 },
+          { type: 'pointerUp', button: 0 },
+        ],
+      }],
+    });
+  }
+
   const page = {
     serial: 'ios',
     platform: 'ios',
@@ -321,7 +344,7 @@ export async function connect(opts = {}) {
       const node = _refMap.get(key);
       if (!node) throw new Error(`tap(${ref}): no element with that ref`);
       const { x, y } = boundsCenter(node.bounds);
-      await wdaPost(`/session/${sid}/wda/tap`, { x, y });
+      await wdaTap(x, y);
     },
 
     async type(ref, text, typeOpts = {}) {
@@ -331,7 +354,7 @@ export async function connect(opts = {}) {
 
       // Coordinate tap to focus
       const { x, y } = boundsCenter(node.bounds);
-      await wdaPost(`/session/${sid}/wda/tap`, { x, y });
+      await wdaTap(x, y);
       await new Promise(r => setTimeout(r, 300));
 
       // Clear if requested — find focused element and use WDA clear
@@ -406,7 +429,7 @@ export async function connect(opts = {}) {
     },
 
     async tapXY(x, y) {
-      await wdaPost(`/session/${sid}/wda/tap`, { x, y });
+      await wdaTap(x, y);
     },
 
     async back() {
@@ -415,11 +438,11 @@ export async function connect(opts = {}) {
       // so we can't match by text. The first navbar button is always the back button.
       if (_navBackNode) {
         const { x, y } = boundsCenter(_navBackNode.bounds);
-        await wdaPost(`/session/${sid}/wda/tap`, { x, y });
+        await wdaTap(x, y);
         return;
       }
       // Fallback: swipe from left edge (standard iOS back gesture)
-      await page.swipe(5, 400, 300, 400, 300);
+      await page.swipe(5, _screenH / 2, 300, _screenH / 2, 300);
     },
 
     async home() {
@@ -453,12 +476,14 @@ export async function connect(opts = {}) {
 
     async launch(bundleId) {
       await page.unlock(passcode);
-      await wdaPost(`/session/${sid}/wda/apps/launch`, { bundleId });
+      const r = await wdaPost(`/session/${sid}/wda/apps/launch`, { bundleId });
+      if (r?.value?.error) throw new Error(`launch(${bundleId}): ${r.value.message}`);
       _refMap = new Map();
     },
 
     async activate(bundleId) {
-      await wdaPost(`/session/${sid}/wda/apps/activate`, { bundleId });
+      const r = await wdaPost(`/session/${sid}/wda/apps/activate`, { bundleId });
+      if (r?.value?.error) throw new Error(`activate(${bundleId}): ${r.value.message}`);
     },
 
     async screenshot() {
