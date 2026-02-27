@@ -277,6 +277,24 @@ baremobile ios teardown       # kill tunnel/WDA/forward processes
 
 Free Apple ID certs expire after 7 days. The MCP server auto-warns when the cert is >6 days old.
 
+### Test plans
+
+Create structured test plans per app using the template at `test/ios-test-plan.template.md`:
+
+```bash
+cp test/ios-test-plan.template.md test/plans/whatsapp.md
+# Edit with app-specific scenarios
+```
+
+Each plan includes a **navigation map** — the app's top-level structure (tabs, screens, key elements) documented once so the agent doesn't waste tokens exploring. Then scenarios with steps and verify assertions.
+
+Feed to any MCP client:
+> "Read test/plans/whatsapp.md and execute the test plan on iOS."
+
+The agent reads the plan, launches the app, follows the steps using snapshot + tap, and verifies assertions. It adapts to unexpected states (popups, loading spinners) because it's using real snapshots — not hardcoded refs.
+
+**Tip:** Run `pymobiledevice3 apps list` to discover all installed bundle IDs upfront.
+
 ---
 
 ## CLI and MCP

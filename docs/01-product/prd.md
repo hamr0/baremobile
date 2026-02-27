@@ -454,6 +454,12 @@ Test files:
 
 Integration tests auto-skip when no ADB device is available.
 
+### iOS test plans
+
+Template at `test/ios-test-plan.template.md`. Copy to `test/plans/[app-name].md` per app. Feed to any MCP client: _"Read test/plans/whatsapp.md and execute the test plan."_
+
+Each plan includes: bundle ID, preconditions, navigation map (top-level app structure so the agent doesn't waste time exploring), scenarios with steps and verify assertions, edge cases (popups, session expiry, slow network).
+
 ---
 
 ## Verified flows

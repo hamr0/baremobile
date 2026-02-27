@@ -54,9 +54,13 @@ mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platfo
 
 ## Tests
 
-136 unit tests + 26 integration tests, 9 test files. All passing.
+148 unit tests + integration tests. All passing.
 
 Run: `node --test test/unit/*.test.js test/integration/*.test.js`
+
+### iOS test plans
+
+Template at `test/ios-test-plan.template.md` — copy per app to `test/plans/[app-name].md`. Includes navigation map (app structure captured upfront), scenarios with verify assertions, edge case handling. Feed to MCP client for agent-driven testing.
 
 iOS tests from Phase 2.7–2.95 (BLE HID era) have been removed. iOS validation is now done via unit tests (`ios.test.js` + `usbmux.test.js`) and manual testing against WDA. Note: iOS is QA-only — WiFi tunnel requires Xcode/Mac for WiFi pairing, USB cable is required on Linux.
 
