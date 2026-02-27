@@ -284,6 +284,16 @@ function findNavBack(root) {
 export async function connect(opts = {}) {
   const passcode = opts.passcode || null;
   const { baseUrl, cleanup } = await resolveWda(opts);
+
+  // Health check — fail fast with actionable message
+  if (!await wdaReady(baseUrl, 3000)) {
+    cleanup();
+    throw new Error(
+      `iOS: WDA not reachable at ${baseUrl}. ` +
+      'Ensure iPhone is connected via USB and WDA is running (npx baremobile setup).'
+    );
+  }
+
   const { wdaGet, wdaPost } = createWda(baseUrl);
 
   const sessResult = await wdaPost('/session', { capabilities: {} });

@@ -172,20 +172,20 @@ Covers: `src/ios.js` — WDA-based iPhone control via HTTP. Same page-object pat
 |------|-------|----------------|
 | `ios/test-wda.js` | 15 | snapshot with refs (1), screenshot PNG (1), launch Settings (1), tap Cell element (1), back navigation (1), scroll (1), swipe (1), home (1), waitForText (1), type into field (1), longPress (1), tapXY coordinates (1), press home/volumeup/volumedown (3) |
 
-Real-device tests require WDA running at `localhost:8100`. Start with `bash ios/setup.sh`.
+Real-device tests require WDA running at `localhost:8100`. Start with `baremobile setup` (option 3).
 
 ```bash
 # Setup (once per session)
-bash ios/setup.sh          # tunnel + DDI + WDA + port forward
+baremobile setup             # option 3: Start iPhone WDA server
 
 # Run real-device tests
-node ios/test-wda.js       # 15 tests against real iPhone
+node ios/test-wda.js         # 15 tests against real iPhone
 
 # Run unit tests (no device needed)
 node --test test/unit/ios.test.js
 
 # Teardown
-bash ios/teardown.sh
+baremobile ios teardown
 ```
 
 **Manually verified E2E flows (iOS):**
@@ -265,7 +265,7 @@ Both platforms use the same page-object pattern: `connect()` → `snapshot()` �
 | Transport | ADB (`child_process.execFile`) | WDA HTTP (`fetch()`) |
 | Import | `import { connect } from 'baremobile'` | `import { connect } from 'baremobile/src/ios.js'` |
 | App IDs | Package: `com.android.settings` | Bundle: `com.apple.Preferences` |
-| Setup | `adb devices` | `bash ios/setup.sh` |
+| Setup | `adb devices` | `baremobile setup` (option 3) |
 | Unit tests | `node --test test/unit/*.test.js` | Same (includes `ios.test.js`) |
 | Device tests | `node --test test/integration/*.test.js` | `node ios/test-wda.js` |
 | Snapshot format | Hierarchical YAML tree | Hierarchical YAML tree (shared pipeline) |

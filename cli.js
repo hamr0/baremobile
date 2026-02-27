@@ -6,10 +6,10 @@
  */
 
 import { resolve } from 'node:path';
-import { unlinkSync, existsSync, readFileSync } from 'node:fs';
+import { unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { createInterface } from 'node:readline';
-import { execFileSync, spawn } from 'node:child_process';
+import { setupMenu, renewCert, teardown } from './src/setup.js';
 
 const args = process.argv.slice(2);
 const cmd = args[0];
@@ -28,20 +28,26 @@ function errOut(msg, exitCode = 1) {
   process.exit(exitCode);
 }
 
-/** Prompt user for input, return answer. */
-function prompt(question) {
-  const rl = createInterface({ input: process.stdin, output: process.stdout });
-  return new Promise((resolve) => {
-    rl.question(question, (answer) => {
-      rl.close();
-      resolve(answer.trim());
+/** Build the UI object for setup wizards. */
+function createUi() {
+  function prompt(question) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout });
+    return new Promise((resolve) => {
+      rl.question(question, (answer) => {
+        rl.close();
+        resolve(answer.trim());
+      });
     });
-  });
-}
-
-/** Prompt user and wait for Enter. */
-async function waitForEnter(msg) {
-  await prompt(`${msg} [press Enter to continue] `);
+  }
+  return {
+    prompt,
+    waitForEnter: (msg) => prompt(`${msg} [press Enter to continue] `),
+    write: (s) => process.stdout.write(s),
+    ok: (s) => process.stdout.write(`\x1b[32m✓\x1b[0m ${s}\n`),
+    fail: (s) => process.stdout.write(`\x1b[31m✗\x1b[0m ${s}\n`),
+    warn: (s) => process.stdout.write(`\x1b[33m!\x1b[0m ${s}\n`),
+    step: (n, s) => process.stdout.write(`\n\x1b[33m[${n}]\x1b[0m ${s}\n`),
+  };
 }
 
 // Hidden internal flag: --daemon-internal
@@ -99,11 +105,11 @@ if (args.includes('--daemon-internal')) {
 } else if (cmd === 'logcat') {
   await cmdProxy('logcat', { filter: parseFlag('--filter'), clear: hasFlag('--clear') });
 } else if (cmd === 'setup') {
-  await cmdSetup();
+  await setupMenu(createUi());
 } else if (cmd === 'ios' && args[1] === 'resign') {
-  await cmdIosResign();
+  await renewCert(createUi());
 } else if (cmd === 'ios' && args[1] === 'teardown') {
-  await cmdIosTeardown();
+  await teardown();
 } else {
   printUsage();
 }
@@ -213,240 +219,6 @@ async function runDaemonInternal() {
   };
   const outputDir = parseFlag('--output-dir') || resolve('.baremobile');
   await runDaemon(opts, outputDir);
-}
-
-
-// --- Setup wizard ---
-
-async function cmdSetup() {
-  process.stdout.write('baremobile setup wizard\n\n');
-
-  const choice = await prompt('Which platform? [1] Android  [2] iOS: ');
-  if (choice === '2' || choice.toLowerCase() === 'ios') {
-    await setupIos();
-  } else {
-    await setupAndroid();
-  }
-}
-
-async function setupAndroid() {
-  process.stdout.write('\n--- Android Setup ---\n\n');
-
-  // Step 1: Check adb
-  process.stdout.write('1. Checking adb... ');
-  try {
-    execFileSync('adb', ['version'], { stdio: 'pipe' });
-    process.stdout.write('found\n');
-  } catch {
-    process.stdout.write('NOT FOUND\n');
-    process.stdout.write('   Install Android SDK platform-tools: https://developer.android.com/tools/releases/platform-tools\n');
-    process.stdout.write('   Then add to PATH and re-run setup.\n');
-    return;
-  }
-
-  // Step 2: Check device
-  process.stdout.write('2. Checking connected devices... ');
-  try {
-    const out = execFileSync('adb', ['devices'], { encoding: 'utf8' });
-    const lines = out.split('\n').filter(l => l.includes('\tdevice'));
-    if (lines.length > 0) {
-      process.stdout.write(`${lines.length} device(s) found\n`);
-      for (const line of lines) {
-        process.stdout.write(`   ${line.split('\t')[0]}\n`);
-      }
-    } else {
-      process.stdout.write('NONE\n');
-      process.stdout.write('   Enable USB debugging on your device:\n');
-      process.stdout.write('   Settings > About phone > tap "Build number" 7 times\n');
-      process.stdout.write('   Settings > Developer options > USB debugging > ON\n');
-      process.stdout.write('   Connect USB cable and tap "Allow" on the debugging prompt.\n');
-      await waitForEnter('Once connected, press Enter to verify');
-      const out2 = execFileSync('adb', ['devices'], { encoding: 'utf8' });
-      const lines2 = out2.split('\n').filter(l => l.includes('\tdevice'));
-      if (lines2.length > 0) {
-        process.stdout.write(`   ${lines2.length} device(s) found\n`);
-      } else {
-        process.stdout.write('   Still no device. Check connection and try again.\n');
-        return;
-      }
-    }
-  } catch (err) {
-    process.stdout.write(`error: ${err.message}\n`);
-    return;
-  }
-
-  process.stdout.write('\nAndroid setup complete. Run: baremobile open\n');
-}
-
-async function setupIos() {
-  process.stdout.write('\n--- iOS Setup (QA only — USB required) ---\n\n');
-
-  // Step 1: Check pymobiledevice3
-  process.stdout.write('1. Checking pymobiledevice3... ');
-  try {
-    execFileSync('pymobiledevice3', ['version'], { stdio: 'pipe' });
-    process.stdout.write('found\n');
-  } catch {
-    process.stdout.write('NOT FOUND\n');
-    process.stdout.write('   Install: pip3 install pymobiledevice3\n');
-    process.stdout.write('   Requires Python 3.12+\n');
-    return;
-  }
-
-  // Step 2: Check USB device
-  process.stdout.write('2. Checking USB device... ');
-  try {
-    const { listDevices } = await import('./src/usbmux.js');
-    const devices = await listDevices();
-    const usbDevices = devices.filter(d => d.connectionType === 'USB');
-    if (usbDevices.length > 0) {
-      process.stdout.write(`${usbDevices.length} device(s)\n`);
-      for (const d of usbDevices) {
-        process.stdout.write(`   ${d.serialNumber}\n`);
-      }
-    } else {
-      process.stdout.write('NONE\n');
-      process.stdout.write('   Connect iPhone via USB cable.\n');
-      process.stdout.write('   Trust the computer on the device if prompted.\n');
-      await waitForEnter('Once connected');
-      const devices2 = await listDevices();
-      if (devices2.filter(d => d.connectionType === 'USB').length === 0) {
-        process.stdout.write('   Still no device. Check cable and trust prompt.\n');
-        return;
-      }
-      process.stdout.write('   Device found.\n');
-    }
-  } catch (err) {
-    process.stdout.write(`error: ${err.message}\n`);
-    process.stdout.write('   Is usbmuxd running? Check: ls /var/run/usbmuxd\n');
-    return;
-  }
-
-  // Step 3: Check Developer Mode
-  process.stdout.write('3. Developer Mode: ensure it\'s enabled on your iPhone.\n');
-  process.stdout.write('   Settings > Privacy & Security > Developer Mode > ON\n');
-  await waitForEnter('Once enabled');
-
-  // Step 4: Check WDA
-  process.stdout.write('4. Checking WDA installation...\n');
-  const wdaIpa = resolve('.wda/WebDriverAgent.ipa');
-  if (existsSync(wdaIpa)) {
-    process.stdout.write('   WDA IPA found at .wda/WebDriverAgent.ipa\n');
-  } else {
-    process.stdout.write('   WDA IPA not found. See ios/SETUP.md for installation.\n');
-    process.stdout.write('   Quick: download WDA IPA and place at .wda/WebDriverAgent.ipa\n');
-  }
-
-  // Step 5: Start tunnel + WDA
-  process.stdout.write('5. Starting iOS bridge (tunnel + DDI + WDA)...\n');
-  process.stdout.write('   Run: bash ios/setup.sh\n');
-  process.stdout.write('   (This requires elevated access for the USB tunnel.)\n');
-  await waitForEnter('Once setup.sh has completed');
-
-  // Step 6: Verify WDA
-  process.stdout.write('6. Verifying WDA connection... ');
-  try {
-    const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
-    const status = await res.json();
-    if (status.value?.ready) {
-      process.stdout.write('WDA ready\n');
-    } else {
-      process.stdout.write('WDA not ready (check setup.sh output)\n');
-      return;
-    }
-  } catch {
-    process.stdout.write('cannot reach localhost:8100\n');
-    process.stdout.write('   WDA may not be running. Check: bash ios/setup.sh\n');
-    return;
-  }
-
-  process.stdout.write('\niOS setup complete. Run: baremobile open --platform=ios\n');
-}
-
-
-// --- iOS resign ---
-
-async function cmdIosResign() {
-  process.stdout.write('baremobile ios resign — re-sign WDA cert\n\n');
-
-  // Check AltServer exists
-  const altserver = resolve('.wda/AltServer');
-  if (!existsSync(altserver)) {
-    errOut('.wda/AltServer not found. Download AltServer-Linux first.');
-  }
-
-  // Check USB device
-  process.stdout.write('Checking USB device... ');
-  try {
-    const { listDevices } = await import('./src/usbmux.js');
-    const devices = await listDevices();
-    const usbDevices = devices.filter(d => d.connectionType === 'USB');
-    if (usbDevices.length === 0) {
-      errOut('No USB device connected. Connect iPhone first.');
-    }
-    process.stdout.write(`found (${usbDevices[0].serialNumber})\n`);
-  } catch (err) {
-    errOut(`usbmux error: ${err.message}`);
-  }
-
-  // Prompt for credentials
-  const email = await prompt('Apple ID email: ');
-  if (!email) errOut('Email required.');
-
-  const password = await prompt('Apple ID password: ');
-  if (!password) errOut('Password required.');
-
-  // Run AltServer
-  process.stdout.write('\nStarting AltServer...\n');
-  const wdaIpa = resolve('.wda/WebDriverAgent.ipa');
-
-  const child = spawn(altserver, [
-    '-u', (await (await import('./src/usbmux.js')).listDevices())[0].serialNumber,
-    '-a', email,
-    '-p', password,
-    wdaIpa,
-  ], { stdio: ['pipe', 'pipe', 'pipe'] });
-
-  let stdout = '';
-  let stderr = '';
-  child.stdout.on('data', (d) => { stdout += d; process.stdout.write(d); });
-  child.stderr.on('data', (d) => { stderr += d; process.stderr.write(d); });
-
-  // Wait for 2FA prompt
-  const twoFa = await prompt('\nEnter 2FA code from your phone: ');
-  if (twoFa) {
-    child.stdin.write(twoFa + '\n');
-  }
-
-  // Wait for completion
-  const exitCode = await new Promise((resolve) => {
-    child.on('close', resolve);
-  });
-
-  if (exitCode === 0) {
-    const { recordIosSigning } = await import('./src/ios-cert.js');
-    recordIosSigning();
-    process.stdout.write('\nWDA signed successfully. Timestamp recorded.\n');
-    process.stdout.write('Remember to trust the developer profile on your device:\n');
-    process.stdout.write('  Settings > General > VPN & Device Management > trust your Apple ID\n');
-  } else {
-    errOut(`AltServer exited with code ${exitCode}. Check output above.`);
-  }
-}
-
-
-// --- iOS teardown ---
-
-async function cmdIosTeardown() {
-  const teardownScript = resolve('ios/teardown.sh');
-  if (!existsSync(teardownScript)) {
-    errOut('ios/teardown.sh not found.');
-  }
-  const child = spawn('bash', [teardownScript], { stdio: 'inherit' });
-  const exitCode = await new Promise((resolve) => child.on('close', resolve));
-  if (exitCode !== 0) {
-    errOut(`teardown.sh exited with code ${exitCode}`);
-  }
 }
 
 

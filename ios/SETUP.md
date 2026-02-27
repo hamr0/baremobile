@@ -1,12 +1,12 @@
 # iOS WDA Setup
 
+> **Prefer `baremobile setup`** — the interactive wizard handles all steps below automatically, with cross-platform support (Linux, macOS, WSL). This file is for advanced/scripted use.
+
 ## Quick Start
 ```bash
-bash ios/setup.sh    # checks prereqs, starts tunnel+WDA+forward
-bash ios/teardown.sh # kills everything
+baremobile setup     # interactive wizard — pick option 2 (from scratch) or 3 (start WDA)
+baremobile ios teardown  # kill all bridge processes
 ```
-
-The script handles steps 5-9 automatically. You only need to do the one-time steps below manually.
 
 ## One-Time: Device
 1. **Developer Mode** — Settings > Privacy & Security > Developer Mode > ON (reboot required)
@@ -27,9 +27,9 @@ Then on device: Settings > General > VPN & Device Management > Trust
 
 | Problem | Fix |
 |---|---|
-| `InvalidService` on WDA launch | DDI not mounted — setup.sh handles this |
+| `InvalidService` on WDA launch | DDI not mounted — `baremobile setup` (option 3) handles this |
 | `Device is not connected` | USB cable + trust computer |
-| Port 8100 in use | `fuser -k 8100/tcp` or `bash ios/teardown.sh` |
+| Port 8100 in use | `fuser -k 8100/tcp` or `baremobile ios teardown` |
 | `invalid code signature` | Trust profile: Settings > General > VPN & Device Management |
 | WDA cert expired | Re-sign (see above) |
 | Tunnel auth popup doesn't appear | Run `pkexec echo test` to verify pkexec works |

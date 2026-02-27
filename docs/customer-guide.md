@@ -274,10 +274,11 @@ page.close();
 WDA XML  →  translateWda()  →  node tree  →  prune()  →  formatTree()  →  YAML
                                                           (shared with Android)
 
-ios/setup.sh starts:
-  1. USB tunnel (pymobiledevice3)
+`baremobile setup` (option 3) starts:
+  1. USB tunnel (pymobiledevice3, elevated)
   2. DDI mount (developer disk image)
   3. WDA launch (XCUITestService)
+  4. Port forward (usbmux.js)
 
 connect() auto-discovers WDA:
   1. Cached WiFi — /tmp/baremobile-ios-wifi → direct HTTP
@@ -303,15 +304,12 @@ Translation layer + shared pipeline. `translateWda()` converts WDA XML attribute
 ### Setup
 
 ```bash
-# Interactive setup wizard (guides through all steps):
-baremobile setup        # pick iOS
+# Interactive setup wizard (guides through all steps, cross-platform):
+baremobile setup          # 4 options: Android, iOS from scratch, start WDA, renew cert
 
-# Or manually:
-# First-time: see ios/SETUP.md (iPhone pairing + WDA installation)
-# Each session:
-./ios/setup.sh          # tunnel + DDI + WDA + port forward
-# When done:
-./ios/teardown.sh       # or: baremobile ios teardown
+# Individual commands:
+baremobile ios resign     # re-sign WDA cert (7-day Apple free cert)
+baremobile ios teardown   # kill tunnel/WDA/forward processes
 ```
 
 ### Prerequisites

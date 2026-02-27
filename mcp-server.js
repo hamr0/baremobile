@@ -253,7 +253,7 @@ async function handleMessage(msg) {
     return jsonrpcResponse(id, {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'baremobile', version: '0.7.0' },
+      serverInfo: { name: 'baremobile', version: '0.7.1' },
     });
   }
 
@@ -292,7 +292,7 @@ async function handleMessage(msg) {
 // --- Stdio transport (only when run directly, not imported) ---
 
 const __filename = fileURLToPath(import.meta.url);
-const isMain = resolve(process.argv[1]) === __filename;
+const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
 
 if (isMain) {
   let buffer = '';

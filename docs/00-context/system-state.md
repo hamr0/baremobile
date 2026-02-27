@@ -16,16 +16,13 @@ src/
 ├── index.js      — Public API: connect(opts) → page object (Android)
 ├── ios.js        — iOS API: connect(opts) → page object (WDA over HTTP)
 ├── usbmux.js     — Node.js usbmuxd client for iOS USB connection
-└── ios-cert.js   — WDA cert expiry tracking (7-day free Apple ID certs)
+├── ios-cert.js   — WDA cert expiry tracking (7-day free Apple ID certs)
+└── setup.js      — Unified setup wizard: Android, iOS from scratch, start WDA, resign cert, teardown
 
 mcp-server.js     — MCP server: JSON-RPC 2.0 over stdio, 10 tools, dual-platform (Android + iOS)
-
-ios/
-├── setup.sh      — Start iOS bridge: tunnel + DDI mount + WDA launch + port forward
-└── teardown.sh   — Stop all iOS bridge processes
 ```
 
-12 modules, ~1,400 lines, zero dependencies.
+13 modules, ~1,800 lines, zero dependencies.
 
 ## What's built
 

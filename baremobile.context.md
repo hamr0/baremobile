@@ -358,11 +358,10 @@ page.close();
 
 ### Setup
 ```bash
-# First-time: see ios/SETUP.md (iPhone pairing + WDA installation)
-# Each session:
-./ios/setup.sh       # tunnel + DDI + WDA + port forward
+# Interactive wizard (guides through all steps, cross-platform):
+baremobile setup     # pick option 2 (from scratch) or 3 (start WDA server)
 # When done:
-./ios/teardown.sh    # kill all bridge processes
+baremobile ios teardown  # kill all bridge processes
 ```
 
 ## MCP Server Integration

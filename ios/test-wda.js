@@ -12,7 +12,7 @@ try {
   page = await connect();
 } catch (e) {
   console.log('Cannot connect to WDA:', e.message);
-  console.log('Run: bash ios/setup.sh');
+  console.log('Run: npx baremobile setup  (option 3)');
   process.exit(1);
 }
 

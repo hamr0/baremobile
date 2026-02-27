@@ -1,5 +1,32 @@
 # Changelog
 
+## 0.7.1
+
+Unified `baremobile setup` wizard — one command for Android and iOS setup on Linux, macOS, and WSL.
+
+### New modules
+- `src/setup.js` — All setup logic (~400 lines). 4-option menu: Android setup, iOS from scratch (10 steps), start WDA server (5 steps), renew cert (4 steps), teardown. Cross-platform: detects OS + package manager, platform-specific install instructions.
+
+### New features
+- **Setup wizard overhaul**: `baremobile setup` now handles everything — tunnel, DDI mount, WDA launch, port forward, AltServer signing — no shell scripts needed.
+- **Cross-platform**: Supports Linux (pkexec, dnf/apt), macOS (sudo/xcrun, brew), WSL (sudo, apt). Auto-detects `findPython()` instead of hardcoding `python3.12`.
+- **WDA health check**: `src/ios.js` `connect()` calls `wdaReady()` before session creation — fails fast with actionable error message.
+- **isMain guard fix**: `mcp-server.js` guards against undefined `process.argv[1]`.
+
+### Changed
+- `cli.js` — Thin routing only. Setup/resign/teardown delegate to `src/setup.js`. Added `createUi()` for colored terminal output. Removed ~200 lines.
+- Device field names fixed: uses `deviceId`/`serial` (actual usbmux fields) instead of `connectionType`/`serialNumber`.
+
+### Removed
+- `ios/setup.sh` — Replaced by `startWda()` in `src/setup.js`
+- `ios/teardown.sh` — Replaced by `teardown()` in `src/setup.js`
+
+### Tests
+- `test/unit/setup.test.js` — 12 tests: `detectHost`, `which`, `parseTunnelOutput`, `parseWdaBundleFromJson`
+- Total: 148 unit tests passing
+
+---
+
 ## 0.7.0
 
 iOS full integration — dual-platform MCP, CLI `--platform` flag, setup wizard, cert tracking.
