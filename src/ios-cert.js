@@ -16,7 +16,7 @@ export function checkIosCert() {
     }
     return null;
   } catch {
-    return 'No WDA signing record found. Run: baremobile ios resign';
+    return null;
   }
 }
 

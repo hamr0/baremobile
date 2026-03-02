@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.7.9
+
+Setup wizard detects existing WDA, cleans up stale processes.
+
+### Changed
+- **WDA skip-reinstall**: `baremobile setup` → option 2 now checks if WDA is already installed with a valid cert. If so, offers to start the server directly — skips sign/install and manual device settings steps.
+- **Process cleanup before start**: `startWda()` kills any previous tunnel, WDA, and port-forward processes (from PID file or by pattern) before spawning new ones. No more orphan accumulation.
+- **WDA boot wait increased**: Status polling changed from 3×2s (6s) to 5×3s (15s) — WDA sometimes needs 10-15s on cold boot.
+- **Cert check tolerant**: `checkIosCert()` returns null (no warning) when signing record is missing, instead of a misleading "no record found" warning. `/tmp` files don't survive reboot — absence means unknown, not expired.
+
 ## 0.7.8
 
 Android setup wizard with 4 connection modes.

@@ -5,6 +5,7 @@ import { resolve, join } from 'node:path';
 import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, statSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
+import { checkIosCert } from './ios-cert.js';
 
 const PID_FILE = '/tmp/baremobile-ios-pids';
 const ANISETTE_FALLBACK = 'https://ani.sidestore.io';
@@ -1054,11 +1055,23 @@ export async function setupIos(ui) {
     ui.ok(`Device found: ${device.serial}`);
   }
 
-  // Step 6: Sign & install WDA
+  // Step 6: Check WDA installation
   ui.step(6, 'Checking WDA installation');
   const bundle = findWdaBundle();
   if (bundle) {
-    ui.ok(`WDA installed: ${bundle}`);
+    const certWarn = checkIosCert();
+    if (!certWarn) {
+      ui.ok(`WDA installed (${bundle}), cert valid`);
+      const ans = await ui.prompt('   WDA is ready. Start server now? [Y/n] ');
+      if (ans.toLowerCase() !== 'n') {
+        await startWda(ui, '7');
+        return;
+      }
+      ui.write('   Continuing with full setup...\n');
+    } else {
+      ui.ok(`WDA installed: ${bundle}`);
+      ui.warn(certWarn);
+    }
   } else {
     ui.warn('WDA not installed on device');
     if (!existsSync(altserver)) {
@@ -1148,6 +1161,21 @@ export async function startWda(ui, prefix) {
   const s = (n) => prefix ? `${prefix}${String.fromCharCode(96 + n)}` : n;
   const host = detectHost();
 
+  // Kill any previous iOS processes before spawning new ones
+  const prevPids = loadPids();
+  if (prevPids) {
+    const killCmd = host.os === 'wsl' ? 'sudo' : 'pkexec';
+    try { execFileSync(killCmd, ['kill', '-9', String(prevPids.tunnel)], { stdio: 'pipe' }); } catch { /* dead */ }
+    try { process.kill(prevPids.wda, 'SIGKILL'); } catch { /* dead */ }
+    try { process.kill(prevPids.fwd, 'SIGKILL'); } catch { /* dead */ }
+    try { unlinkSync(PID_FILE); } catch { /* gone */ }
+    ui.warn('Cleaned up previous iOS session');
+  }
+  // Also kill orphans not tracked by PID file
+  try { execFileSync('pkill', ['-f', 'XCUITestService'], { stdio: 'pipe' }); } catch { /* none */ }
+  try { execFileSync('fuser', ['-k', '8100/tcp'], { stdio: 'pipe' }); } catch { /* none */ }
+  await new Promise(r => setTimeout(r, 500));
+
   // Step 1: Check USB device
   ui.step(s(1), 'Checking USB device');
   let device = await findUsbDevice();
@@ -1166,12 +1194,6 @@ export async function startWda(ui, prefix) {
 
   // Step 2: Start tunnel
   ui.step(s(2), 'Starting tunnel (requires elevated access)');
-  // Kill stale tunnels
-  try {
-    execFileSync('pkill', ['-f', 'pymobiledevice3.*start-tunnel'], { stdio: 'pipe' });
-    ui.warn('Killed stale tunnel processes');
-  } catch { /* none running */ }
-
   let tunnelChild;
   if (host.os === 'macos') {
     // macOS: prefer xcrun devicectl if Xcode available, else sudo
@@ -1293,12 +1315,6 @@ asyncio.run(main())
   // Step 5: Port forward + verify
   ui.step(s(5), 'Port forwarding and verification');
 
-  // Kill stale port 8100
-  try {
-    execFileSync('fuser', ['-k', '8100/tcp'], { stdio: 'pipe' });
-    await new Promise(r => setTimeout(r, 500));
-  } catch { /* nothing on 8100 */ }
-
   // Start usbmux forwarder
   const { forward } = await import('./usbmux.js');
   let fwdServer;
@@ -1310,10 +1326,10 @@ asyncio.run(main())
     return;
   }
 
-  // Retry /status 3x at 2s intervals
+  // Retry /status 5x at 3s intervals
   let wdaReady = false;
-  for (let i = 0; i < 3; i++) {
-    await new Promise(r => setTimeout(r, 2000));
+  for (let i = 0; i < 5; i++) {
+    await new Promise(r => setTimeout(r, 3000));
     try {
       const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
       const status = await res.json();
@@ -1358,8 +1374,8 @@ asyncio.run(main())
     retryChild.stdout.on('data', () => {});
     retryChild.stderr.on('data', () => {});
     ui.write('   Relaunching WDA...\n');
-    for (let i = 0; i < 3; i++) {
-      await new Promise(r => setTimeout(r, 2000));
+    for (let i = 0; i < 5; i++) {
+      await new Promise(r => setTimeout(r, 3000));
       try {
         const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
         const status = await res.json();
@@ -1372,7 +1388,7 @@ asyncio.run(main())
     retryChild.unref();
     if (!wdaReady) ui.fail('WDA still not responding. Run: baremobile ios teardown && baremobile setup');
   } else {
-    ui.fail('WDA not responding after 3 attempts');
+    ui.fail('WDA not responding after 5 attempts');
     if (wdaOutput.trim()) ui.write(`   ${wdaOutput.trim().split('\n').pop()}\n`);
   }
 }

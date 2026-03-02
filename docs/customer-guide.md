@@ -297,6 +297,8 @@ baremobile ios resign         # re-sign WDA cert (7-day Apple free cert, interac
 baremobile ios teardown       # kill tunnel/WDA/forward processes
 ```
 
+**Smart detection:** Option 2 checks if WDA is already installed with a valid cert. If so, it skips the install and offers to start the server directly. Previous tunnel/WDA processes are automatically cleaned up before starting new ones.
+
 Free Apple ID certs expire after 7 days. The MCP server auto-warns when the cert is >6 days old.
 
 ### Test plans
