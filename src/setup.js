@@ -643,12 +643,14 @@ async function setupTermux(ui) {
 
     ui.step(6, 'Connect');
     ui.write('   Go back to Wireless debugging screen.\n');
-    ui.write('   The port shown under "IP address & Port" is the connect port\n');
+    ui.write('   Note the IP and port shown under "IP address & Port"\n');
     ui.write('   (different from the pairing port above).\n');
-    ui.write('     adb connect localhost:<CONNECT_PORT>\n\n');
+    ui.write('   IMPORTANT: use the IP address, not localhost:\n');
+    ui.write('     adb connect <IP>:<CONNECT_PORT>\n');
+    ui.write('   Example: adb connect 192.168.1.42:38527\n\n');
 
     ui.step(7, 'Verify');
-    ui.write('   adb devices should show localhost:<PORT>\n');
+    ui.write('   adb devices should show <IP>:<PORT>\n');
     ui.write('   Then run: npx baremobile open\n\n');
 
     ui.write('   Optional: install Termux:API for SMS, calls, GPS, camera:\n');
@@ -676,9 +678,11 @@ async function setupTermux(ui) {
     ui.write('        Use split-screen or swipe down — the code stays in notifications.\n');
     ui.write('        Finish the command: adb pair localhost:43787 123456\n');
     ui.write('        If you get "protocol fault", the code expired — tap Pair again.\n');
-    ui.write('     6. Connect — go back to Wireless debugging. The port under\n');
-    ui.write('        "IP address & Port" is the connect port (different from pairing port):\n');
-    ui.write('        adb connect localhost:<CONNECT_PORT>\n');
+    ui.write('     6. Connect — go back to Wireless debugging. Note the IP and port\n');
+    ui.write('        under "IP address & Port" (different from pairing port).\n');
+    ui.write('        IMPORTANT: use the IP address, not localhost:\n');
+    ui.write('        adb connect <IP>:<CONNECT_PORT>\n');
+    ui.write('        Example: adb connect 192.168.1.42:38527\n');
     ui.write('     7. Run: npx baremobile open\n\n');
     ui.write('   For SMS, calls, GPS, camera — also install Termux:API:\n');
     ui.write('     1. Install Termux:API app from F-Droid\n');
