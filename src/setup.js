@@ -490,12 +490,15 @@ async function setupUsb(ui) {
 async function setupWifi(ui) {
   const host = detectHost();
 
+  ui.write('   Controls your phone from this computer over WiFi.\n');
+  ui.write('   No apps needed on the phone. One-time USB setup required.\n\n');
+
   // Step 1: Ensure adb
   ui.step(1, 'Checking adb');
   if (!await ensureAdb(ui, host)) return;
 
   // Step 2: Check for existing WiFi devices
-  ui.step(2, 'Checking connected devices');
+  ui.step(2, 'Checking for existing WiFi connection');
   try {
     const out = execFileSync('adb', ['devices'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
     const wifiLines = out.split('\n').filter(l => /\d+\.\d+\.\d+\.\d+:\d+\s+device/.test(l));
@@ -506,74 +509,91 @@ async function setupWifi(ui) {
       return;
     }
   } catch { /* ignore */ }
+  ui.write('   No WiFi device connected yet.\n');
 
-  // Step 3: Guide connection
-  ui.step(3, 'Connecting via WiFi');
-  ui.write('   This controls your phone from this computer over WiFi.\n');
-  ui.write('   No apps need to be installed on the phone.\n');
-  ui.write('   A one-time USB connection is required to enable WiFi mode.\n\n');
+  // Step 3: Enable developer options on the phone
+  ui.step(3, 'Enable Developer options on the phone');
+  ui.write('   On the phone, open Settings > About phone.\n');
+  ui.write('   Tap "Build number" 7 times.\n');
+  ui.write('   (You\'ll see "You are now a developer!" when done.)\n');
+  await ui.waitForEnter('Once done');
 
-  ui.write('   First-time setup:\n\n');
+  // Step 4: Enable USB debugging
+  ui.step(4, 'Enable USB debugging on the phone');
+  ui.write('   On the phone, go to Settings > System > Developer options.\n');
+  ui.write('   Turn on "USB debugging".\n');
+  await ui.waitForEnter('Once done');
 
-  ui.write('   On the phone:\n');
-  ui.write('     1. Open Settings > About phone\n');
-  ui.write('     2. Tap "Build number" 7 times (enables Developer options)\n');
-  ui.write('     3. Go back to Settings > System > Developer options\n');
-  ui.write('     4. Turn on "USB debugging"\n');
-  ui.write('     5. Plug the phone into this computer with a USB cable\n');
-  ui.write('        (must be a data cable, not a charge-only cable)\n');
-  ui.write('     6. A popup appears on the phone: "Allow USB debugging?"\n');
-  ui.write('        Tap "Allow" (check "Always allow" for convenience)\n\n');
+  // Step 5: Plug in USB and wait for device
+  ui.step(5, 'Connect phone via USB');
+  ui.write('   Plug the phone into this computer with a USB data cable.\n');
+  ui.write('   (Charge-only cables won\'t work — use the cable that came with the phone.)\n');
+  ui.write('   A popup may appear on the phone: "Allow USB debugging?"\n');
+  ui.write('   Tap "Allow" (check "Always allow" for convenience).\n');
+  await ui.waitForEnter('Once plugged in and allowed');
 
-  ui.write('   On this computer (open a second terminal):\n');
-  ui.write('     7. Run: adb devices\n');
-  ui.write('        You should see your device serial number followed by "device"\n');
-  ui.write('        If it says "unauthorized", check the phone for the Allow popup\n');
-  ui.write('        If nothing appears, try a different USB cable\n');
-  ui.write('     8. Run: adb tcpip 5555\n');
-  ui.write('        This tells the phone to accept WiFi connections on port 5555\n');
-  ui.write('     9. Find the phone\'s IP address:\n');
-  ui.write('        Phone Settings > About phone > IP address\n');
-  ui.write('        (or run: adb shell ip route | grep wlan)\n');
-  ui.write('    10. Unplug the USB cable\n');
-  ui.write('    11. Enter the phone\'s IP address below\n');
-  ui.write('        WiFi mode stays active until the phone reboots.\n');
-  ui.write('        After a reboot, repeat from step 5.\n\n');
+  // Step 6: Detect USB device
+  ui.step(6, 'Detecting USB device');
+  const usbDevice = await checkAdbDevices(ui);
+  if (!usbDevice) return;
 
-  ui.write('   Already set up before? Just enter the IP below.\n\n');
-
-  const ip = await ui.prompt('Phone IP (or Enter to skip): ');
-  if (ip) {
-    const addr = ip.includes(':') ? ip : `${ip}:5555`;
-    ui.write(`   Connecting to ${addr}...\n`);
-    try {
-      const out = execFileSync('adb', ['connect', addr], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-      if (/connected/.test(out)) {
-        ui.ok(`Connected to ${addr}`);
-      } else {
-        ui.fail(`Connection failed: ${out.trim()}`);
-        ui.write('   Check:\n');
-        ui.write('   - Phone and this computer are on the same WiFi network\n');
-        ui.write('   - USB debugging is enabled (see steps 1-4 above)\n');
-        ui.write('   - "adb tcpip 5555" was run once while phone was USB-connected\n');
-        return;
-      }
-    } catch (err) {
-      ui.fail(`Connection failed: ${err.message}`);
-      return;
-    }
-  } else {
-    ui.write('   Skipped. Follow the steps above, then re-run setup.\n');
+  // Step 7: Switch to WiFi mode
+  ui.step(7, 'Switching to WiFi mode');
+  try {
+    execFileSync('adb', ['tcpip', '5555'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    ui.ok('Phone now accepts WiFi connections on port 5555');
+  } catch (err) {
+    ui.fail(`Could not enable WiFi mode: ${err.message}`);
     return;
   }
 
-  // Step 4: Verify
-  ui.step(4, 'Verifying');
+  // Step 8: Get phone IP automatically
+  ui.step(8, 'Finding phone IP address');
+  let phoneIp = null;
+  try {
+    const route = execFileSync('adb', ['shell', 'ip', 'route'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const match = route.match(/src\s+(\d+\.\d+\.\d+\.\d+)/);
+    if (match) phoneIp = match[1];
+  } catch { /* ignore */ }
+
+  if (phoneIp) {
+    ui.ok(`Found IP: ${phoneIp}`);
+  } else {
+    ui.warn('Could not detect IP automatically.');
+    ui.write('   Check on the phone: Settings > About phone > IP address\n');
+    const manual = await ui.prompt('Phone IP: ');
+    if (!manual) { ui.fail('No IP provided.'); return; }
+    phoneIp = manual.trim();
+  }
+
+  // Step 9: Unplug and connect over WiFi
+  ui.step(9, 'Connect over WiFi');
+  ui.write('   Unplug the USB cable now.\n');
+  await ui.waitForEnter('Once unplugged');
+
+  ui.write(`   Connecting to ${phoneIp}:5555...\n`);
+  try {
+    const out = execFileSync('adb', ['connect', `${phoneIp}:5555`], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    if (/connected/.test(out)) {
+      ui.ok(`Connected to ${phoneIp}:5555`);
+    } else {
+      ui.fail(`Connection failed: ${out.trim()}`);
+      ui.write('   Make sure phone and computer are on the same WiFi network.\n');
+      return;
+    }
+  } catch (err) {
+    ui.fail(`Connection failed: ${err.message}`);
+    ui.write('   Make sure phone and computer are on the same WiFi network.\n');
+    return;
+  }
+
+  // Step 10: Verify
+  ui.step(10, 'Verifying');
   try {
     const out = execFileSync('adb', ['devices'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
     const lines = out.split('\n').filter(l => l.includes('\tdevice'));
     if (lines.length > 0) {
-      ui.ok(`${lines.length} device(s) connected`);
+      ui.ok(`${lines.length} device(s) connected over WiFi`);
     } else {
       ui.fail('No devices found after connect.');
       return;
@@ -583,6 +603,8 @@ async function setupWifi(ui) {
     return;
   }
 
+  ui.write('\n   WiFi mode stays active until the phone reboots.\n');
+  ui.write('   After a reboot, plug USB back in and re-run this setup.\n');
   ui.write('\nAndroid WiFi setup complete. Run: baremobile open\n');
 }
 
