@@ -509,15 +509,38 @@ async function setupWifi(ui) {
 
   // Step 3: Guide connection
   ui.step(3, 'Connecting via WiFi');
-  ui.write('   Two options:\n\n');
-  ui.write('   A) From USB (one-time setup):\n');
-  ui.write('      1. Connect phone via USB, ensure adb devices shows it\n');
-  ui.write('      2. Run: adb tcpip 5555\n');
-  ui.write('      3. Find phone IP: Settings > About phone > IP address\n');
-  ui.write('      4. Run: adb connect <phone-ip>:5555\n');
-  ui.write('      5. Unplug USB — WiFi connection persists until reboot\n\n');
-  ui.write('   B) Already set up:\n');
-  ui.write('      Enter your phone\'s IP address below.\n\n');
+  ui.write('   This controls your phone from this computer over WiFi.\n');
+  ui.write('   No apps need to be installed on the phone.\n');
+  ui.write('   A one-time USB connection is required to enable WiFi mode.\n\n');
+
+  ui.write('   First-time setup:\n\n');
+
+  ui.write('   On the phone:\n');
+  ui.write('     1. Open Settings > About phone\n');
+  ui.write('     2. Tap "Build number" 7 times (enables Developer options)\n');
+  ui.write('     3. Go back to Settings > System > Developer options\n');
+  ui.write('     4. Turn on "USB debugging"\n');
+  ui.write('     5. Plug the phone into this computer with a USB cable\n');
+  ui.write('        (must be a data cable, not a charge-only cable)\n');
+  ui.write('     6. A popup appears on the phone: "Allow USB debugging?"\n');
+  ui.write('        Tap "Allow" (check "Always allow" for convenience)\n\n');
+
+  ui.write('   On this computer (open a second terminal):\n');
+  ui.write('     7. Run: adb devices\n');
+  ui.write('        You should see your device serial number followed by "device"\n');
+  ui.write('        If it says "unauthorized", check the phone for the Allow popup\n');
+  ui.write('        If nothing appears, try a different USB cable\n');
+  ui.write('     8. Run: adb tcpip 5555\n');
+  ui.write('        This tells the phone to accept WiFi connections on port 5555\n');
+  ui.write('     9. Find the phone\'s IP address:\n');
+  ui.write('        Phone Settings > About phone > IP address\n');
+  ui.write('        (or run: adb shell ip route | grep wlan)\n');
+  ui.write('    10. Unplug the USB cable\n');
+  ui.write('    11. Enter the phone\'s IP address below\n');
+  ui.write('        WiFi mode stays active until the phone reboots.\n');
+  ui.write('        After a reboot, repeat from step 5.\n\n');
+
+  ui.write('   Already set up before? Just enter the IP below.\n\n');
 
   const ip = await ui.prompt('Phone IP (or Enter to skip): ');
   if (ip) {
@@ -529,8 +552,10 @@ async function setupWifi(ui) {
         ui.ok(`Connected to ${addr}`);
       } else {
         ui.fail(`Connection failed: ${out.trim()}`);
-        ui.write('   Ensure phone and this machine are on the same network.\n');
-        ui.write('   Ensure USB debugging is enabled and adb tcpip 5555 was run once.\n');
+        ui.write('   Check:\n');
+        ui.write('   - Phone and this computer are on the same WiFi network\n');
+        ui.write('   - USB debugging is enabled (see steps 1-4 above)\n');
+        ui.write('   - "adb tcpip 5555" was run once while phone was USB-connected\n');
         return;
       }
     } catch (err) {
@@ -575,16 +600,31 @@ async function setupTermux(ui) {
     ui.write('   Run these in Termux:\n');
     ui.write('     pkg install android-tools nodejs-lts\n\n');
 
-    ui.step(3, 'Enable wireless debugging');
-    ui.write('   On the phone:\n');
-    ui.write('     Settings > Developer options > Wireless debugging > ON\n');
-    ui.write('     Tap "Pair device with pairing code"\n');
-    ui.write('     Note the port + code, then run:\n');
-    ui.write('       adb pair localhost:<PAIR_PORT> <CODE>\n\n');
-    ui.write('   Then note the connect port (shown on Wireless debugging screen):\n');
-    ui.write('       adb connect localhost:<CONNECT_PORT>\n\n');
+    ui.step(3, 'Enable Developer options');
+    ui.write('   Settings > About phone > tap Build number 7 times\n\n');
 
-    ui.step(4, 'Verify');
+    ui.step(4, 'Enable wireless debugging');
+    ui.write('   Settings > System > Developer options > Wireless debugging > ON\n');
+    ui.write('   When prompted, select "Allow on this network only"\n\n');
+
+    ui.step(5, 'Pair Termux with ADB');
+    ui.write('   Pre-type this in Termux (don\'t press Enter yet):\n');
+    ui.write('     adb pair localhost:\n\n');
+    ui.write('   Then open Settings > Wireless debugging > "Pair device with pairing code".\n');
+    ui.write('   A dialog shows a 6-digit code and a port (e.g. 43787).\n');
+    ui.write('   Use split-screen or swipe down — the code stays in notifications.\n');
+    ui.write('   Finish the command with the port and code:\n');
+    ui.write('     adb pair localhost:43787 123456\n');
+    ui.write('   You should see "Successfully paired".\n');
+    ui.write('   The code expires quickly — if you get "protocol fault", tap Pair again.\n\n');
+
+    ui.step(6, 'Connect');
+    ui.write('   Go back to Wireless debugging screen.\n');
+    ui.write('   The port shown under "IP address & Port" is the connect port\n');
+    ui.write('   (different from the pairing port above).\n');
+    ui.write('     adb connect localhost:<CONNECT_PORT>\n\n');
+
+    ui.step(7, 'Verify');
     ui.write('   adb devices should show localhost:<PORT>\n');
     ui.write('   Then run: npx baremobile open\n\n');
 
@@ -601,11 +641,22 @@ async function setupTermux(ui) {
     ui.write('     2. Open Termux and run:\n');
     ui.write('        pkg install android-tools nodejs-lts\n');
     ui.write('        npm install baremobile\n');
-    ui.write('     3. Enable wireless debugging:\n');
-    ui.write('        Settings > Developer options > Wireless debugging > ON\n');
-    ui.write('     4. Pair: adb pair localhost:<PORT> <CODE>\n');
-    ui.write('     5. Connect: adb connect localhost:<PORT>\n');
-    ui.write('     6. Run: npx baremobile open\n\n');
+    ui.write('     3. Enable Developer options:\n');
+    ui.write('        Settings > About phone > tap Build number 7 times\n');
+    ui.write('     4. Enable wireless debugging:\n');
+    ui.write('        Settings > System > Developer options > Wireless debugging > ON\n');
+    ui.write('        When prompted, select "Allow on this network only"\n');
+    ui.write('     5. Pair — pre-type in Termux (don\'t press Enter yet):\n');
+    ui.write('        adb pair localhost:\n');
+    ui.write('        Then tap "Pair device with pairing code" in Wireless debugging.\n');
+    ui.write('        A dialog shows a 6-digit code and a port (e.g. 43787).\n');
+    ui.write('        Use split-screen or swipe down — the code stays in notifications.\n');
+    ui.write('        Finish the command: adb pair localhost:43787 123456\n');
+    ui.write('        If you get "protocol fault", the code expired — tap Pair again.\n');
+    ui.write('     6. Connect — go back to Wireless debugging. The port under\n');
+    ui.write('        "IP address & Port" is the connect port (different from pairing port):\n');
+    ui.write('        adb connect localhost:<CONNECT_PORT>\n');
+    ui.write('     7. Run: npx baremobile open\n\n');
     ui.write('   For SMS, calls, GPS, camera — also install Termux:API:\n');
     ui.write('     1. Install Termux:API app from F-Droid\n');
     ui.write('     2. In Termux: pkg install termux-api\n');
@@ -933,8 +984,9 @@ async function checkAdbDevices(ui) {
     ui.write('     - Android 10+ (2019 or newer)\n');
     ui.write('     - USB debugging enabled:\n');
     ui.write('       Settings > About phone > tap "Build number" 7 times\n');
-    ui.write('       Settings > Developer options > USB debugging > ON\n');
-    ui.write('     - USB cable connected, tap "Allow" on the debugging prompt\n');
+    ui.write('       Settings > System > Developer options > USB debugging > ON\n');
+    ui.write('     - USB cable connected (data-capable, not charge-only)\n');
+    ui.write('     - Tap "Allow USB debugging" when prompted on the phone\n');
     await ui.waitForEnter('Once connected');
 
     const out2 = execFileSync('adb', ['devices', '-l'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
