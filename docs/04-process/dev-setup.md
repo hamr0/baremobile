@@ -174,15 +174,17 @@ adb devices  # should show localhost:5555
 # Install in Termux:
 pkg install android-tools nodejs-lts
 
-# Enable Wireless Debugging: Settings → Developer options → Wireless debugging → ON
+# Enable Wireless Debugging: Settings → System → Developer options → Wireless debugging → ON
 # Tap "Pair device with pairing code" — note port + code
-adb pair localhost:PORT CODE
+adb pair localhost:PAIR_PORT CODE
 
-# Note the CONNECT port (different from pairing port, shown on Wireless debugging screen)
-adb connect localhost:PORT
+# Note the IP and CONNECT port shown on Wireless debugging screen
+# IMPORTANT: use the WiFi IP address, not localhost (localhost fails for connect)
+adb connect <DEVICE_IP>:CONNECT_PORT
+# Example: adb connect 192.168.1.42:38527
 
 # Verify
-adb devices  # should show localhost:PORT  device
+adb devices  # should show <IP>:PORT  device
 ```
 
 **Package summary:**

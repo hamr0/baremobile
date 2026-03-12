@@ -406,7 +406,7 @@ Requirements:
 | **USB** | Plug in cable, tap "Allow" | Development, testing |
 | **WiFi (same LAN)** | `adb tcpip 5555` once via USB, then `adb connect <phone-ip>:5555` | Home setup -- phone and machine on same WiFi |
 | **Remote (Tailscale/WireGuard)** | Tailscale on phone + machine, same tailnet. `adb connect <tailscale-ip>:5555` | Phone at home, agent on a server elsewhere |
-| **Termux (on-device)** | `pkg install android-tools`, wireless debugging, `adb pair` + `adb connect localhost:PORT` | Autonomous agent on phone |
+| **Termux (on-device)** | `pkg install android-tools`, wireless debugging, `adb pair localhost:PORT` + `adb connect <DEVICE_IP>:PORT` | Autonomous agent on phone |
 | **Emulator** | `emulator -avd <name>` or Android Studio. Auto-detected. | CI, development |
 | **iOS USB** | USB cable + `baremobile setup` | iOS QA/testing |
 

@@ -126,7 +126,7 @@ npx baremobile setup   # Android: emulator, USB, WiFi, or Termux
 
 **Manual setup** (USB):
 1. Enable Developer Options -- Settings > About phone > tap "Build number" 7 times
-2. Enable USB debugging -- Settings > Developer options > toggle on
+2. Enable USB debugging -- Settings > System > Developer options > toggle on
 3. Connect device via USB, tap "Allow" on the prompt
 4. Verify -- `adb devices` should show your device
 
