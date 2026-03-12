@@ -967,7 +967,7 @@ function findSystemImage(sdkRoot, sdkEnv) {
  */
 async function checkAdbDevices(ui) {
   try {
-    const out = execFileSync('adb', ['devices', '-l'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const out = execFileSync('adb', ['devices'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
     const lines = out.split('\n').slice(1).filter(l => l.trim());
 
     // Check for connected devices
@@ -1011,7 +1011,7 @@ async function checkAdbDevices(ui) {
     ui.write('     - Tap "Allow USB debugging" when prompted on the phone\n');
     await ui.waitForEnter('Once connected');
 
-    const out2 = execFileSync('adb', ['devices', '-l'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    const out2 = execFileSync('adb', ['devices'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
     const ready2 = out2.split('\n').filter(l => l.includes('\tdevice'));
     if (ready2.length > 0) {
       ui.ok(`${ready2.length} device(s) found`);
