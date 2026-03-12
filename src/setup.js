@@ -537,18 +537,8 @@ async function setupWifi(ui) {
   const usbDevice = await checkAdbDevices(ui);
   if (!usbDevice) return;
 
-  // Step 7: Switch to WiFi mode
-  ui.step(7, 'Switching to WiFi mode');
-  try {
-    execFileSync('adb', ['tcpip', '5555'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
-    ui.ok('Phone now accepts WiFi connections on port 5555');
-  } catch (err) {
-    ui.fail(`Could not enable WiFi mode: ${err.message}`);
-    return;
-  }
-
-  // Step 8: Get phone IP automatically
-  ui.step(8, 'Finding phone IP address');
+  // Step 7: Get phone IP (must be before tcpip — tcpip drops USB connection)
+  ui.step(7, 'Finding phone IP address');
   let phoneIp = null;
   try {
     const route = execFileSync('adb', ['shell', 'ip', 'route'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
@@ -560,10 +550,21 @@ async function setupWifi(ui) {
     ui.ok(`Found IP: ${phoneIp}`);
   } else {
     ui.warn('Could not detect IP automatically.');
-    ui.write('   Check on the phone: Settings > About phone > IP address\n');
+    ui.write('   On the phone: Settings > About phone > look for "IP address"\n');
+    ui.write('   It looks like 192.168.x.x or 10.0.x.x (NOT 192.168.x.0)\n');
     const manual = await ui.prompt('Phone IP: ');
     if (!manual) { ui.fail('No IP provided.'); return; }
     phoneIp = manual.trim();
+  }
+
+  // Step 8: Switch to WiFi mode (after IP — tcpip drops USB)
+  ui.step(8, 'Switching to WiFi mode');
+  try {
+    execFileSync('adb', ['tcpip', '5555'], { encoding: 'utf8', stdio: ['pipe', 'pipe', 'pipe'] });
+    ui.ok('Phone now accepts WiFi connections on port 5555');
+  } catch (err) {
+    ui.fail(`Could not enable WiFi mode: ${err.message}`);
+    return;
   }
 
   // Step 9: Unplug and connect over WiFi
