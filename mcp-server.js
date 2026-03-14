@@ -10,10 +10,13 @@
  * Action tools return 'ok' — agent calls snapshot explicitly to observe.
  */
 
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkIosCert } from './src/ios-cert.js';
+
+const __dirname = import.meta.dirname;
+const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8')).version;
 
 const MAX_CHARS_DEFAULT = 30000;
 const OUTPUT_DIR = join(process.cwd(), '.baremobile');
@@ -270,7 +273,7 @@ async function handleMessage(msg) {
     return jsonrpcResponse(id, {
       protocolVersion: '2024-11-05',
       capabilities: { tools: {} },
-      serverInfo: { name: 'baremobile', version: '0.7.5' },
+      serverInfo: { name: 'baremobile', version: PKG_VERSION },
     });
   }
 
@@ -356,8 +359,9 @@ async function handleMessage(msg) {
 
 // --- Stdio transport (only when run directly, not imported) ---
 
+import { realpathSync } from 'node:fs';
 const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && resolve(process.argv[1]) === __filename;
+const isMain = process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(__filename);
 
 if (isMain) {
   let buffer = '';

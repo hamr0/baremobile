@@ -88,7 +88,7 @@ Thin wrapper around `child_process.execFile('adb', ...)`.
 Key details:
 - `exec-out` for binary-safe stdout (not `shell` which mangles line endings)
 - Dump path: `/data/local/tmp/baremobile.xml`
-- `listDevices` infers type from serial prefix (`emulator-` -> emulator, else usb)
+- `listDevices` infers type from serial: `emulator-*` -> emulator, IP:port -> wifi, else usb
 - 4MB maxBuffer for large UI trees
 
 ### `src/xml.js` -- XML Parser
@@ -218,7 +218,7 @@ Key map for `press()`:
 
 Key details:
 - `type()` uses word-by-word + KEYCODE_SPACE pattern (API 35+ fix -- `input text` with spaces broken)
-- `type()` shell-escapes `& | ; $ \` " ' \ < > ( )` per word
+- `type()` shell-escapes `& | ; $ \` " ' \ < > ( ) ~ # % ^ * { } [ ] ! ?` per word
 - `type()` taps to focus with 500ms settle delay before typing
 - `scroll()` computes swipe within element bounds -- center to one-third offset
 - `longPress()` uses zero-distance swipe trick (same point, long duration)

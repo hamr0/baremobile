@@ -75,7 +75,7 @@ Claude Desktop / Cursor -- add to config (`claude_desktop_config.json`, `.cursor
 }
 ```
 
-10 tools: `snapshot`, `tap`, `type`, `press`, `scroll`, `swipe`, `long_press`, `launch`, `screenshot`, `back`.
+11 tools: `snapshot`, `tap`, `type`, `press`, `scroll`, `swipe`, `long_press`, `launch`, `screenshot`, `back`, `find_by_text`.
 
 ### Library
 

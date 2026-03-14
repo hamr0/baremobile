@@ -62,7 +62,7 @@ export async function type(ref, text, refMap, opts = {}) {
   const words = text.split(' ');
   for (let i = 0; i < words.length; i++) {
     if (i > 0) await shell('input keyevent 62', opts);
-    const escaped = words[i].replace(/[&|;$`"'\\<>()]/g, c => '\\' + c);
+    const escaped = words[i].replace(/[&|;$`"'\\<>()~#%^*{}\[\]!?]/g, c => '\\' + c);
     if (escaped) await shell(`input text '${escaped}'`, opts);
   }
 }

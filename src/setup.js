@@ -506,6 +506,9 @@ async function setupWifi(ui) {
     if (wifiLines.length > 0) {
       ui.ok('WiFi device already connected');
       for (const l of wifiLines) ui.write(`   ${l.trim()}\n`);
+      // Save device for auto-reconnect
+      const m = wifiLines[0].match(/(\d+\.\d+\.\d+\.\d+):(\d+)/);
+      if (m) saveDevice(m[1], Number(m[2]));
       ui.write('\nAndroid WiFi setup complete. Run: baremobile open\n');
       return;
     }

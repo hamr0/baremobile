@@ -49,8 +49,10 @@ export async function listDevices() {
     const serial = parts[0];
     const state = parts[1];
     if (state !== 'device') continue;
-    // type: "usb" or "emulator" — infer from serial
-    const type = serial.startsWith('emulator-') ? 'emulator' : 'usb';
+    // type: "usb", "emulator", or "wifi" — infer from serial
+    const type = serial.startsWith('emulator-') ? 'emulator'
+      : /^\d+\.\d+\.\d+\.\d+:\d+$/.test(serial) ? 'wifi'
+      : 'usb';
     devices.push({ serial, state, type });
   }
   return devices;

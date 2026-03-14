@@ -1,5 +1,20 @@
 # Changelog
 
+## 0.7.11
+
+Bug fixes and robustness improvements.
+
+### Fixed
+- **MCP symlink path mismatch**: `realpathSync` fix for `isMain` guard — MCP server failed to start when invoked via symlink (e.g. `npx baremobile mcp`).
+- **MCP version hardcoded**: `serverInfo.version` was stuck at `0.7.5`. Now reads from `package.json` at startup.
+- **`launch()` fails for some apps**: Apps without a MAIN/LAUNCHER intent (e.g. `com.termux`) failed silently. Now falls back to `monkey` launch.
+- **WiFi devices classified as USB**: `listDevices()` only checked for `emulator-` prefix. IP:port serials (e.g. `192.168.1.42:5555`) now correctly reported as `type: 'wifi'`.
+- **`type()` mangles shell special chars**: Characters like `~`, `#`, `%`, `^`, `*`, `{`, `}`, `[`, `]`, `!`, `?` were not escaped. Fixed.
+- **`setupWifi()` early-exit skipped save**: When a WiFi device was already connected, `saveDevice()` was not called — breaking auto-reconnect after DHCP change.
+
+### Changed
+- **Faster subnet scan**: `reconnectWifi()` tries `arp -a` (instant) then `nmap -sn` (fast) before falling back to parallel ping sweep.
+
 ## 0.7.10
 
 WiFi auto-reconnect — no more manual setup after DHCP changes.

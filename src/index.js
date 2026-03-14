@@ -113,7 +113,11 @@ export async function connect(opts = {}) {
     },
 
     async launch(pkg) {
-      await shell(`am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER ${pkg}`, adbOpts);
+      const out = await shell(`am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER ${pkg} 2>&1`, adbOpts);
+      // Fallback: if MAIN/LAUNCHER intent fails, try monkey launch (works for Termux etc.)
+      if (/Error|does not have|Activity not found/i.test(out)) {
+        await shell(`monkey -p ${pkg} -c android.intent.category.LAUNCHER 1 2>/dev/null`, adbOpts);
+      }
     },
 
     async intent(action, extras = {}) {

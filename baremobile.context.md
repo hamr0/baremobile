@@ -194,7 +194,7 @@ await page.press('enter');
 
 **Emojis show as entities in contentDesc.** `View [ref=8] (&#128512;)` means the emoji 😀. The agent can read the unicode codepoint or just tap by ref position in the grid.
 
-**type() is word-by-word.** On API 35+, `adb input text` is broken for spaces. baremobile splits text into words and injects KEYCODE_SPACE between them. This means typing is slower for long strings.
+**type() is word-by-word.** On API 35+, `adb input text` is broken for spaces. baremobile splits text into words and injects KEYCODE_SPACE between them. This means typing is slower for long strings. Shell special characters (`& | ; $ ~ # % ^ * { } [ ] ! ?` and quotes) are escaped automatically.
 
 ### Termux ADB only
 

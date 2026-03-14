@@ -68,21 +68,40 @@ function tryConnect(ip, port) {
  * @returns {string|null} IP that connected, or null
  */
 function scanSubnet(subnet, port) {
-  // Quick parallel ping sweep (1 second timeout each, background)
-  // Then try adb connect on IPs that responded
+  // Try fast methods first (arp/nmap), fall back to ping sweep
   try {
-    // Use nmap if available for speed, fall back to sequential scan of common range
     const candidates = [];
 
-    // Ping sweep — run in parallel via shell
+    // Tier 1: arp cache — instant, already-known hosts
     try {
-      execFileSync('sh', ['-c',
-        `for i in $(seq 1 254); do (ping -c1 -W1 ${subnet}.$i >/dev/null 2>&1 && echo ${subnet}.$i) & done | head -20; wait`
-      ], { encoding: 'utf8', timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] })
-        .trim().split('\n').filter(Boolean).forEach(ip => candidates.push(ip));
-    } catch {
-      // Ping sweep failed/timed out — try common DHCP range directly
-      for (let i = 2; i <= 100; i++) candidates.push(`${subnet}.${i}`);
+      execFileSync('arp', ['-a'], { encoding: 'utf8', timeout: 3000, stdio: ['pipe', 'pipe', 'pipe'] })
+        .match(/\d+\.\d+\.\d+\.\d+/g)
+        ?.filter(ip => ip.startsWith(subnet + '.'))
+        .forEach(ip => candidates.push(ip));
+    } catch { /* arp not available */ }
+
+    // Tier 2: nmap ping scan — fast subnet discovery
+    if (candidates.length === 0) {
+      try {
+        execFileSync('nmap', ['-sn', '-n', `${subnet}.0/24`], {
+          encoding: 'utf8', timeout: 10000, stdio: ['pipe', 'pipe', 'pipe'],
+        }).match(/\d+\.\d+\.\d+\.\d+/g)
+          ?.filter(ip => ip.startsWith(subnet + '.'))
+          .forEach(ip => candidates.push(ip));
+      } catch { /* nmap not available */ }
+    }
+
+    // Tier 3: parallel ping sweep (slowest fallback)
+    if (candidates.length === 0) {
+      try {
+        execFileSync('sh', ['-c',
+          `for i in $(seq 1 254); do (ping -c1 -W1 ${subnet}.$i >/dev/null 2>&1 && echo ${subnet}.$i) & done | head -20; wait`
+        ], { encoding: 'utf8', timeout: 15000, stdio: ['pipe', 'pipe', 'pipe'] })
+          .trim().split('\n').filter(Boolean).forEach(ip => candidates.push(ip));
+      } catch {
+        // All scan methods failed — try common DHCP range directly
+        for (let i = 2; i <= 100; i++) candidates.push(`${subnet}.${i}`);
+      }
     }
 
     for (const ip of candidates) {

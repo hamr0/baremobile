@@ -70,13 +70,15 @@ describe('MCP tools/list', () => {
 // --- JSON-RPC dispatch ---
 
 describe('MCP JSON-RPC dispatch', () => {
-  it('initialize returns server info', async () => {
+  it('initialize returns server info with version from package.json', async () => {
     const raw = await handleMessage({ jsonrpc: '2.0', id: 1, method: 'initialize', params: {} });
     const res = JSON.parse(raw);
     assert.equal(res.id, 1);
     assert.equal(res.result.serverInfo.name, 'baremobile');
     assert.equal(res.result.protocolVersion, '2024-11-05');
     assert.ok(res.result.capabilities.tools);
+    const pkg = JSON.parse(readFileSync(join(import.meta.dirname, '../../package.json'), 'utf8'));
+    assert.equal(res.result.serverInfo.version, pkg.version);
   });
 
   it('notifications/initialized returns null', async () => {

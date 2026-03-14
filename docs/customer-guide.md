@@ -357,7 +357,7 @@ Things your agent doesn't have to think about:
 - **Bloated UI trees** — 4-step pruning: collapse wrappers, drop empty nodes, dedup list items, filter internal class names
 - **iOS snapshot noise** — keyboard subtrees stripped, Unicode directional markers removed, file paths cleaned
 - **200+ Android widget classes** — mapped to 27 simple roles (Button, Text, TextInput, Image...)
-- **Text input quirks** — API 35+ space handling, shell character escaping
+- **Text input quirks** — API 35+ space handling, full shell character escaping (`~ # % ^ * { } [ ] ! ?` and more)
 - **Binary output corruption** — `exec-out` for clean PNG bytes
 - **Multi-device setups** — every command threads device serial
 - **Element states** — `[disabled]`, `[checked]`, `[focused]`, `[selected]` in snapshots
