@@ -132,6 +132,8 @@ npx baremobile setup   # Android: emulator, USB, WiFi, or Termux
 
 Android 10+ required (2019 or newer). For WiFi, Termux, emulator, and iOS setup details, see [docs/customer-guide.md](docs/customer-guide.md).
 
+**WiFi auto-reconnect:** After WiFi setup, the device IP is saved. If the connection drops (DHCP reassignment, ADB restart), `connect()` automatically reconnects -- no manual re-setup needed.
+
 ## Tested against
 
 Settings, Messages, Chrome, Gmail, Files, Camera, Calculator, Contacts, Play Store, YouTube -- on physical devices and emulators across API 33-35.

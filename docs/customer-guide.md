@@ -60,7 +60,7 @@ baremobile setup    # choose Android → pick your connection mode
 |------|----------|---------------------|
 | **Emulator** | QA/testing without a phone | Installs SDK (~3GB), creates AVD, launches emulator |
 | **USB** | QA/testing with a phone | Checks adb, guides USB debugging setup, detects device |
-| **WiFi** | Personal assistant | Interactive — enables USB debugging, detects device, runs `adb tcpip`, auto-detects IP, connects |
+| **WiFi** | Personal assistant | Interactive — enables USB debugging, detects device, runs `adb tcpip`, auto-detects IP, connects. Auto-reconnects on DHCP changes. |
 | **Termux** | Autonomous on-device agent | Guides Termux package install + wireless debugging |
 
 **Minimum version:** Android 10+ (2019 or newer).

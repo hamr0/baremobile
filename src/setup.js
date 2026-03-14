@@ -6,6 +6,7 @@ import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, statSyn
 import { execFileSync, spawn } from 'node:child_process';
 import { homedir } from 'node:os';
 import { checkIosCert } from './ios-cert.js';
+import { saveDevice } from './wifi-persist.js';
 
 const PID_FILE = '/tmp/baremobile-ios-pids';
 const ANISETTE_FALLBACK = 'https://ani.sidestore.io';
@@ -603,6 +604,9 @@ async function setupWifi(ui) {
     ui.fail(`Error: ${err.message}`);
     return;
   }
+
+  // Save WiFi device for auto-reconnect
+  saveDevice(phoneIp, 5555);
 
   ui.write('\n   WiFi mode stays active until the phone reboots.\n');
   ui.write('   After a reboot, plug USB back in and re-run this setup.\n');

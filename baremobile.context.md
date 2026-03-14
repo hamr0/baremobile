@@ -9,7 +9,7 @@ Every agent interaction follows observe-think-act:
 ```js
 import { connect } from 'baremobile';
 
-const page = await connect();    // auto-detect device
+const page = await connect();    // auto-detect device (auto-reconnects WiFi if needed)
 let snapshot = await page.snapshot();  // observe
 
 // Agent reads snapshot, picks action

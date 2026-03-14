@@ -6,6 +6,7 @@ import { parseXml } from './xml.js';
 import { prune } from './prune.js';
 import { formatTree } from './aria.js';
 import * as interact from './interact.js';
+import { loadSavedDevice, reconnectWifi } from './wifi-persist.js';
 
 /**
  * One-shot snapshot: dump + parse + prune + format.
@@ -34,8 +35,16 @@ export async function connect(opts = {}) {
     if (opts.termux || (!opts.device && await isTermux())) {
       serial = await resolveTermuxDevice();
     } else {
-      const devices = await listDevices();
-      if (devices.length === 0) throw new Error('No ADB devices found. Is a device/emulator connected?');
+      let devices = await listDevices();
+      if (devices.length === 0) {
+        // Try auto-reconnect from saved WiFi device
+        const saved = loadSavedDevice();
+        if (saved) {
+          await reconnectWifi(saved);
+          devices = await listDevices();
+        }
+        if (devices.length === 0) throw new Error('No ADB devices found. Is a device/emulator connected?');
+      }
       serial = devices[0].serial;
     }
   }

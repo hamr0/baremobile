@@ -1,5 +1,18 @@
 # Changelog
 
+## 0.7.10
+
+WiFi auto-reconnect — no more manual setup after DHCP changes.
+
+### New
+- **WiFi auto-reconnect**: `connect()` automatically reconnects to saved WiFi devices when no ADB device is found. Saves device IP to `~/.config/baremobile/wifi-device.json` during `baremobile setup` WiFi flow.
+- **Subnet scan fallback**: If saved IP fails (DHCP reassigned), scans the local subnet to find the device. Updates saved IP for next time.
+- **`src/wifi-persist.js`**: New module — `saveDevice()`, `loadSavedDevice()`, `reconnectWifi()`.
+
+### Changed
+- **`connect()` in `src/index.js`**: When `listDevices()` returns empty, tries auto-reconnect from saved WiFi config before throwing.
+- **`setupWifi()` in `src/setup.js`**: Saves device IP after successful WiFi connection.
+
 ## 0.7.9
 
 Setup wizard detects existing WDA, cleans up stale processes.
