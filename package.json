@@ -35,7 +35,7 @@
     "url": "git+https://github.com/hamr0/baremobile.git"
   },
   "author": "hamr0",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "files": [
     "src/",
     "cli.js",
