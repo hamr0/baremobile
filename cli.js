@@ -56,7 +56,8 @@ function createUi() {
 if (args.includes('--daemon-internal')) {
   await runDaemonInternal();
 } else if (cmd === 'mcp') {
-  await import('./mcp-server.js');
+  const { startStdio } = await import('./mcp-server.js');
+  startStdio();
 } else if (cmd === 'open') {
   await cmdOpen();
 } else if (cmd === 'close') {

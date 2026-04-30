@@ -357,13 +357,9 @@ async function handleMessage(msg) {
   return jsonrpcError(id, -32601, `Method not found: ${method}`);
 }
 
-// --- Stdio transport (only when run directly, not imported) ---
+// --- Stdio transport ---
 
-import { realpathSync } from 'node:fs';
-const __filename = fileURLToPath(import.meta.url);
-const isMain = process.argv[1] && realpathSync(resolve(process.argv[1])) === realpathSync(__filename);
-
-if (isMain) {
+export function startStdio() {
   let buffer = '';
 
   process.stdin.setEncoding('utf8');
@@ -396,6 +392,17 @@ if (isMain) {
     for (const p of Object.values(_pages)) if (p) p.close();
     process.exit(0);
   });
+}
+
+// Auto-start when run directly (node mcp-server.js). The CLI path
+// (`baremobile mcp`) calls startStdio() explicitly — see cli.js.
+import { realpathSync } from 'node:fs';
+const __filename = fileURLToPath(import.meta.url);
+const argv1 = process.argv[1];
+if (argv1) {
+  try {
+    if (realpathSync(resolve(argv1)) === realpathSync(__filename)) startStdio();
+  } catch { /* argv1 may not exist on disk */ }
 }
 
 // Export for testing
