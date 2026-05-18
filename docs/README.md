@@ -17,7 +17,9 @@
 | [prd.md](01-product/prd.md) | Blueprint — full architecture, module details, verified flows, roadmap, design decisions |
 
 ### 02-features/ — How features are designed
-Reserved for feature-specific deep dives as complexity grows.
+| File | What |
+|------|------|
+| [code-review-fixes.md](02-features/code-review-fixes.md) | Phased plan to fix all Critical + Important findings from the v0.7.13 code review and ship targeted enhancements. |
 
 ### 03-logs/ — Memory (what changed over time)
 | File | What |

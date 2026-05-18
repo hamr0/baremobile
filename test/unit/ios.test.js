@@ -606,4 +606,79 @@ describe('iOS module — unit tests', () => {
       }
     });
   });
+
+  describe('WDA fetch timeout (Phase 1 fix 1.4)', () => {
+    // A hanging WDA server must not park the call forever — the per-request
+    // AbortSignal.timeout(...) inside wdaFetch should fire and the third
+    // attempt should surface as a typed WDA_TIMEOUT error that the MCP retry
+    // tier can recognise.
+    it('hung server fails fast with WDA_TIMEOUT', async () => {
+      process.env.BAREMOBILE_WDA_TIMEOUT_MS = '120';
+      // Re-import ios.js so the new env value is picked up
+      const url = new URL('../../src/ios.js', import.meta.url);
+      const { connect } = await import(`${url.href}?t=${Date.now()}`);
+
+      const http = await import('node:http');
+      const server = http.createServer((req, res) => {
+        if (req.url === '/status') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ value: { ready: true } }));
+          return;
+        }
+        // Hang every other request — never write headers
+      });
+      await new Promise((r) => server.listen(0, '127.0.0.1', r));
+      const port = server.address().port;
+
+      const t0 = Date.now();
+      await assert.rejects(
+        () => connect({ host: '127.0.0.1', port }),
+        (e) => e.code === 'WDA_TIMEOUT' || /timed out/i.test(e.message),
+      );
+      const elapsed = Date.now() - t0;
+      // 3 attempts × 120ms + 2 × 500ms backoff = ~1360ms upper bound
+      assert.ok(elapsed < 4000, `connect should fail fast on hang, took ${elapsed}ms`);
+
+      server.close();
+      delete process.env.BAREMOBILE_WDA_TIMEOUT_MS;
+    });
+  });
+
+  describe('connect() lifecycle — /session failure', () => {
+    // Regression test for Phase 1 fix 1.2: if WDA accepts /status but then
+    // /session fails, connect() must throw rather than leaving the page
+    // half-initialized (and, in the USB-discovery path, must call cleanup()
+    // to release the usbmuxd tunnel). With an explicit host, cleanup is a
+    // no-op so we can't observe it directly — but we can verify the throw.
+    it('rejects with a real error when /session POST fails', async () => {
+      const http = await import('node:http');
+      const server = http.createServer((req, res) => {
+        if (req.url === '/status') {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ value: { ready: true } }));
+          return;
+        }
+        if (req.url === '/session') {
+          res.writeHead(500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ value: { error: 'simulated', message: 'boom' } }));
+          return;
+        }
+        res.writeHead(404);
+        res.end();
+      });
+      await new Promise((r) => server.listen(0, '127.0.0.1', r));
+      const port = server.address().port;
+
+      try {
+        await assert.rejects(
+          () => connect({ host: '127.0.0.1', port }),
+          // /session returns 500 with a body — sessionId is missing, so
+          // the explicit "no sessionId" guard fires.
+          /sessionId|simulated|boom/i,
+        );
+      } finally {
+        server.close();
+      }
+    });
+  });
 });

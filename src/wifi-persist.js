@@ -1,12 +1,26 @@
 // WiFi device persistence — save/load last known WiFi device IP for auto-reconnect.
 
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, unlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import { homedir } from 'node:os';
 import { execFileSync } from 'node:child_process';
 
 const CONFIG_DIR = join(homedir(), '.config', 'baremobile');
 const DEVICE_FILE = join(CONFIG_DIR, 'wifi-device.json');
+
+// IPv4 only — the rest of the code paths (`adb connect ip:port`, subnet scan)
+// assume IPv4 numeric octets. We deliberately do not accept v6 or hostnames
+// to keep validation simple and defense-in-depth tight.
+const IPV4_RE = /^(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)(?:\.(?:25[0-5]|2[0-4]\d|1\d\d|[1-9]?\d)){3}$/;
+
+/**
+ * Validate an IPv4 address string. Used to gate saved-device loading so a
+ * corrupted ~/.config/baremobile/wifi-device.json can't push attacker-
+ * controlled bytes into adb connect or subnet scan paths.
+ */
+export function isValidIpv4(s) {
+  return typeof s === 'string' && IPV4_RE.test(s);
+}
 
 /**
  * Save WiFi device IP after successful setup.
@@ -19,13 +33,25 @@ export function saveDevice(ip, port = 5555) {
 }
 
 /**
- * Load saved WiFi device info.
+ * Load saved WiFi device info. Returns null and deletes the file if the
+ * stored record is corrupt (bad JSON, missing fields, malformed IP, or
+ * non-numeric port). This stops a poisoned config from feeding garbage
+ * into `adb connect` or the subnet scanner downstream.
+ *
  * @returns {{ ip: string, port: number } | null}
  */
 export function loadSavedDevice() {
+  let parsed;
   try {
-    return JSON.parse(readFileSync(DEVICE_FILE, 'utf8'));
+    parsed = JSON.parse(readFileSync(DEVICE_FILE, 'utf8'));
   } catch { return null; }
+
+  const port = Number(parsed?.port);
+  if (!isValidIpv4(parsed?.ip) || !Number.isInteger(port) || port < 1 || port > 65535) {
+    try { unlinkSync(DEVICE_FILE); } catch { /* file may already be gone */ }
+    return null;
+  }
+  return { ip: parsed.ip, port };
 }
 
 /**

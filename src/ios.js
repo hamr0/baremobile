@@ -19,15 +19,33 @@ const WIFI_CACHE = '/tmp/baremobile-ios-wifi';
 
 // --- WDA HTTP helpers (instance-scoped via closure) ---
 
+// Default per-request timeout for WDA HTTP calls. When WDA hangs (common
+// after iOS lock or app crash) an unbounded fetch parks the whole MCP call.
+// Surface as AbortError after this window so the retry tier in mcp-server.js
+// can react. Override via BAREMOBILE_WDA_TIMEOUT_MS for slow CI machines.
+const WDA_DEFAULT_TIMEOUT_MS = Number(process.env.BAREMOBILE_WDA_TIMEOUT_MS) || 10_000;
+
 function createWda(baseUrl) {
-  async function wdaFetch(path, init) {
+  async function wdaFetch(path, init = {}) {
     const url = `${baseUrl}${path}`;
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        const res = await fetch(url, init);
+        // Per-attempt timeout — total wait is bounded by 3 × timeout + 2 ×
+        // 500ms backoff. Callers may override via init.signal (e.g. tests).
+        const signal = init.signal ?? AbortSignal.timeout(WDA_DEFAULT_TIMEOUT_MS);
+        const res = await fetch(url, { ...init, signal });
         return res.json();
       } catch (e) {
-        if (attempt === 2) throw e;
+        const isTimeout = e?.name === 'TimeoutError' || e?.name === 'AbortError';
+        if (attempt === 2) {
+          if (isTimeout) {
+            const err = new Error(`WDA request timed out after ${WDA_DEFAULT_TIMEOUT_MS}ms: ${path}`);
+            err.code = 'WDA_TIMEOUT';
+            err.cause = e;
+            throw err;
+          }
+          throw e;
+        }
         await new Promise(r => setTimeout(r, 500));
       }
     }
@@ -302,25 +320,39 @@ export async function connect(opts = {}) {
 
   const { wdaGet, wdaPost } = createWda(baseUrl);
 
-  const sessResult = await wdaPost('/session', { capabilities: {} });
-  const sid = sessResult.sessionId;
+  // Anything that throws between here and the `return page` at the end of
+  // connect() must release the usbmuxd tunnel held by `cleanup()`, otherwise
+  // it leaks for the lifetime of the process. Wrap the whole bring-up in
+  // try/catch and cleanup-and-rethrow.
+  let sid;
   let _refMap = new Map();
   let _navBackNode = null;
-
-  // Cache screen dimensions and compute Retina scale factor
   let _screenW = 390; // safe default
   let _screenH = 800; // safe default
   let _scaleFactor = 3; // safe default for modern iPhones
+
   try {
-    const sz = await wdaGet(`/session/${sid}/window/size`);
-    if (sz.value?.width) _screenW = sz.value.width;
-    if (sz.value?.height) _screenH = sz.value.height;
-    const ssResult = await wdaGet('/screenshot');
-    const screenshotBuf = Buffer.from(ssResult.value, 'base64');
-    // PNG header: width at bytes 16-19 (big-endian)
-    const pngWidth = screenshotBuf.readUInt32BE(16);
-    _scaleFactor = pngWidth / _screenW;
-  } catch { /* use defaults */ }
+    const sessResult = await wdaPost('/session', { capabilities: {} });
+    sid = sessResult.sessionId;
+    if (!sid) throw new Error('WDA /session returned no sessionId');
+
+    // Cache screen dimensions and compute Retina scale factor. Failure here
+    // is non-fatal — fall back to safe defaults — but we still need cleanup
+    // on a connection-level error that escapes the inner try.
+    try {
+      const sz = await wdaGet(`/session/${sid}/window/size`);
+      if (sz.value?.width) _screenW = sz.value.width;
+      if (sz.value?.height) _screenH = sz.value.height;
+      const ssResult = await wdaGet('/screenshot');
+      const screenshotBuf = Buffer.from(ssResult.value, 'base64');
+      // PNG header: width at bytes 16-19 (big-endian)
+      const pngWidth = screenshotBuf.readUInt32BE(16);
+      _scaleFactor = pngWidth / _screenW;
+    } catch { /* use defaults */ }
+  } catch (e) {
+    cleanup();
+    throw e;
+  }
 
   // W3C Actions tap — synthesizes raw touch event, works where /wda/tap silently fails
   async function wdaTap(x, y) {
@@ -459,8 +491,20 @@ export async function connect(opts = {}) {
         await wdaTap(x, y);
         return;
       }
-      // Fallback: swipe from left edge (standard iOS back gesture)
-      await page.swipe(5, _screenH / 2, 300, _screenH / 2, 300);
+      // Fallback: swipe from left edge (standard iOS back gesture).
+      // _screenH was cached at connect() time — orientation may have changed
+      // since (portrait → landscape rotates the centre line). Re-query so the
+      // swipe stays mid-screen regardless of current orientation.
+      let midY = _screenH / 2;
+      try {
+        const sz = await wdaGet(`/session/${sid}/window/size`);
+        if (sz.value?.height) {
+          _screenH = sz.value.height;
+          if (sz.value.width) _screenW = sz.value.width;
+          midY = _screenH / 2;
+        }
+      } catch { /* keep cached value */ }
+      await page.swipe(5, midY, 300, midY, 300);
     },
 
     async home() {

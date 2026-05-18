@@ -35,6 +35,66 @@ export async function shell(cmd, opts = {}) {
 }
 
 /**
+ * Quote a value for safe inclusion in an `adb shell` command string.
+ * `adb shell <cmd>` re-parses the string on the device, so any user-controlled
+ * value flowing into a shell-string callsite must be quoted. Wraps in single
+ * quotes and escapes embedded single quotes via the standard `'\''` idiom.
+ *
+ * @param {string|number|boolean} v
+ * @returns {string} quoted token, e.g. `'O'\''Brien'`
+ */
+export function shellQuote(v) {
+  return `'${String(v).replace(/'/g, `'\\''`)}'`;
+}
+
+/**
+ * Validate an Android package name. Package names must start with a letter
+ * and contain only letters, digits, underscores, and dots — matching the
+ * Java package convention enforced by the Android build system.
+ *
+ * Throws on invalid input so callers cannot accidentally pass attacker-
+ * controlled strings into `am start … <pkg>` (which re-parses on the device).
+ *
+ * @param {string} pkg
+ * @returns {string} the validated package name (returned for chaining)
+ */
+export function validatePackage(pkg) {
+  if (typeof pkg !== 'string' || !/^[A-Za-z][A-Za-z0-9_.]*$/.test(pkg)) {
+    throw new Error(`Invalid Android package name: ${JSON.stringify(pkg)}`);
+  }
+  return pkg;
+}
+
+/**
+ * Validate an Android intent action string. Actions are dotted identifiers
+ * like `android.intent.action.VIEW` — same character class as package names
+ * but additionally allowing the leading letter rule across each dotted part.
+ *
+ * @param {string} action
+ * @returns {string} the validated action
+ */
+export function validateIntentAction(action) {
+  if (typeof action !== 'string' || !/^[A-Za-z][A-Za-z0-9_.]*$/.test(action)) {
+    throw new Error(`Invalid intent action: ${JSON.stringify(action)}`);
+  }
+  return action;
+}
+
+/**
+ * Validate an intent extra key. Same constraints as a Java identifier:
+ * letters, digits, underscore, dot — no shell metacharacters.
+ *
+ * @param {string} key
+ * @returns {string} the validated key
+ */
+export function validateExtraKey(key) {
+  if (typeof key !== 'string' || !/^[A-Za-z][A-Za-z0-9_.]*$/.test(key)) {
+    throw new Error(`Invalid intent extra key: ${JSON.stringify(key)}`);
+  }
+  return key;
+}
+
+/**
  * List connected devices (state === 'device' only).
  * @returns {Promise<{serial: string, state: string, type: string}[]>}
  */

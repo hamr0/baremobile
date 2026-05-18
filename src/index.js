@@ -1,6 +1,9 @@
 // Public API — connect(opts) → page object, snapshot(opts) one-shot
 
-import { listDevices, exec, shell, dumpXml, screenSize } from './adb.js';
+import {
+  listDevices, exec, shell, dumpXml, screenSize,
+  shellQuote, validatePackage, validateIntentAction, validateExtraKey,
+} from './adb.js';
 import { isTermux, resolveTermuxDevice } from './termux.js';
 import { parseXml } from './xml.js';
 import { prune } from './prune.js';
@@ -113,6 +116,7 @@ export async function connect(opts = {}) {
     },
 
     async launch(pkg) {
+      validatePackage(pkg);
       const out = await shell(`am start -a android.intent.action.MAIN -c android.intent.category.LAUNCHER ${pkg} 2>&1`, adbOpts);
       // Fallback: if MAIN/LAUNCHER intent fails, try monkey launch (works for Termux etc.)
       if (/Error|does not have|Activity not found/i.test(out)) {
@@ -121,11 +125,13 @@ export async function connect(opts = {}) {
     },
 
     async intent(action, extras = {}) {
+      validateIntentAction(action);
       let cmd = `am start -a ${action}`;
       for (const [k, v] of Object.entries(extras)) {
-        if (typeof v === 'number') cmd += ` --ei ${k} ${v}`;
+        validateExtraKey(k);
+        if (typeof v === 'number' && Number.isFinite(v)) cmd += ` --ei ${k} ${v}`;
         else if (typeof v === 'boolean') cmd += ` --ez ${k} ${v}`;
-        else cmd += ` --es ${k} '${v}'`;
+        else cmd += ` --es ${k} ${shellQuote(v)}`;
       }
       await shell(cmd, adbOpts);
     },

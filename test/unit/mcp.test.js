@@ -8,7 +8,23 @@ import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
-import { TOOLS, handleMessage } from '../../mcp-server.js';
+import { TOOLS, handleMessage, resolvePlatform } from '../../mcp-server.js';
+
+describe('resolvePlatform (Phase 2 fix 2.6)', () => {
+  it('returns explicit platform when valid', () => {
+    assert.strictEqual(resolvePlatform({ platform: 'android' }), 'android');
+    assert.strictEqual(resolvePlatform({ platform: 'ios' }), 'ios');
+  });
+
+  it('defaults to android for missing or unknown values', () => {
+    assert.strictEqual(resolvePlatform({}), 'android');
+    assert.strictEqual(resolvePlatform(undefined), 'android');
+    assert.strictEqual(resolvePlatform(null), 'android');
+    assert.strictEqual(resolvePlatform({ platform: '' }), 'android');
+    assert.strictEqual(resolvePlatform({ platform: 'windows' }), 'android');
+    assert.strictEqual(resolvePlatform({ platform: 42 }), 'android');
+  });
+});
 
 // --- Tool definitions ---
 
@@ -59,11 +75,47 @@ describe('MCP tools/list', () => {
     assert.deepEqual(fbt.inputSchema.required, ['text']);
   });
 
+  // Phase 2 fix 2.5 — find_by_text must return a structured JSON payload so
+  // an agent can distinguish "not found" from a label that literally reads
+  // "null". The wire format is { found: true, ref: "N" } / { found: false }.
+  it('find_by_text description documents structured shape', () => {
+    const fbt = TOOLS.find(t => t.name === 'find_by_text');
+    assert.match(fbt.description, /found/);
+    assert.ok(
+      !/Returns the ref number or null/.test(fbt.description),
+      'description must not promise legacy "null" string format',
+    );
+  });
+
+  it('find_by_text source returns structured object (no literal "null")', () => {
+    const src = readFileSync(join(import.meta.dirname, '../../mcp-server.js'), 'utf8');
+    const found = src.match(/case 'find_by_text':[\s\S]+?break|case 'find_by_text':[\s\S]+?\}\s*\n\s*default/);
+    assert.ok(found, 'find_by_text case present');
+    assert.match(found[0], /\{\s*found:\s*true,\s*ref:/, 'must return {found:true, ref:...}');
+    assert.match(found[0], /\{\s*found:\s*false\s*\}/, 'must return {found:false} on miss');
+    assert.ok(!/'null'/.test(found[0]), 'must not return the literal string "null"');
+  });
+
   it('screenshot and back have no required params', () => {
     const screenshot = TOOLS.find(t => t.name === 'screenshot');
     const back = TOOLS.find(t => t.name === 'back');
     assert.equal(screenshot.inputSchema.required, undefined);
     assert.equal(back.inputSchema.required, undefined);
+  });
+
+  // Phase 2 fix 2.7 — every tool advertises which platforms it supports,
+  // both as a structured `_platforms` array and as a `[android|ios]` /
+  // `[ios-only]` etc. prefix in the description.
+  it('every tool advertises a _platforms array and matching description tag', () => {
+    for (const tool of TOOLS) {
+      assert.ok(Array.isArray(tool._platforms), `${tool.name} missing _platforms`);
+      assert.ok(tool._platforms.length >= 1, `${tool.name} _platforms empty`);
+      for (const p of tool._platforms) {
+        assert.ok(['android', 'ios'].includes(p), `${tool.name} has unknown platform ${p}`);
+      }
+      assert.match(tool.description, /^\[(android\|ios|android-only|ios-only)\]/,
+        `${tool.name} description must lead with platform tag`);
+    }
   });
 });
 
@@ -106,6 +158,29 @@ describe('MCP JSON-RPC dispatch', () => {
     const res = JSON.parse(raw);
     assert.ok(res.result.isError);
     assert.ok(res.result.content[0].text.includes('Unknown tool'));
+  });
+
+  // Phase 2 fix 2.7 — the _platforms gate must refuse a tool call when the
+  // requested platform isn't supported. We can't easily force this through
+  // a real TOOLS entry today (every current tool supports both), so we
+  // temporarily mutate the tool's _platforms array to confirm the gate
+  // fires with a clear, parseable error message.
+  it('tools/call rejects unsupported platform with helpful error', async () => {
+    const tap = TOOLS.find(t => t.name === 'tap');
+    const original = tap._platforms;
+    tap._platforms = ['ios']; // pretend tap is iOS-only
+    try {
+      const raw = await handleMessage({
+        jsonrpc: '2.0', id: 4, method: 'tools/call',
+        params: { name: 'tap', arguments: { ref: '1', platform: 'android' } },
+      });
+      const res = JSON.parse(raw);
+      assert.ok(res.result.isError, 'must mark response as error');
+      assert.match(res.result.content[0].text, /not supported on platform "android"/);
+      assert.match(res.result.content[0].text, /Supported: ios/);
+    } finally {
+      tap._platforms = original;
+    }
   });
 });
 

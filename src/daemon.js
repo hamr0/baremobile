@@ -15,6 +15,52 @@ import { join, resolve } from 'node:path';
 const SESSION_FILE = 'session.json';
 
 /**
+ * Parse a timeout argument coming over the HTTP wire (always a string or
+ * undefined in JSON). Returns `undefined` when the caller omitted it so
+ * downstream defaults apply; throws on malformed input rather than silently
+ * coercing `""` / `"abc"` to 0 / NaN (which previously made wait-* commands
+ * "succeed" instantly with a misleading timeout error).
+ *
+ * @param {unknown} v
+ * @returns {number|undefined}
+ */
+/**
+ * Push a line into a bounded ring buffer. When `arr.length` would exceed
+ * `max`, drop the oldest `trim` entries in one `splice()` so we amortise
+ * the shift cost across `trim` pushes instead of paying O(n) per push.
+ *
+ * @template T
+ * @param {T[]} arr
+ * @param {T} line
+ * @param {number} max
+ * @param {number} trim
+ */
+export function pushBounded(arr, line, max, trim) {
+  arr.push(line);
+  if (arr.length > max) {
+    arr.splice(0, arr.length - max + trim);
+  }
+}
+
+export function parseTimeout(v) {
+  if (v == null) return undefined;
+  if (typeof v === 'string') {
+    const t = v.trim();
+    if (t === '') return undefined;
+    // Reject anything that isn't a plain decimal — Number() would happily
+    // coerce '5s', '   42', etc. to numbers and lose intent.
+    if (!/^\d+(\.\d+)?$/.test(t)) {
+      throw new Error(`Invalid timeout: ${JSON.stringify(v)} (expected non-negative number in milliseconds)`);
+    }
+    return Number(t);
+  }
+  if (typeof v !== 'number' || !Number.isFinite(v) || v < 0) {
+    throw new Error(`Invalid timeout: ${JSON.stringify(v)} (expected non-negative number in milliseconds)`);
+  }
+  return v;
+}
+
+/**
  * Spawn a detached child process that runs the daemon.
  * Parent polls for session.json, then exits.
  */
@@ -72,7 +118,12 @@ export async function runDaemon(opts, outputDir) {
     device: opts.device,
   });
 
-  // Logcat capture (Android only)
+  // Logcat capture (Android only) — bounded ring buffer to keep memory
+  // predictable on long-lived daemons. Once we cross LOGCAT_MAX, drop the
+  // oldest LOGCAT_TRIM lines in one shift (amortised O(1)) instead of
+  // shifting on every push (O(n²)).
+  const LOGCAT_MAX = 50_000;
+  const LOGCAT_TRIM = 1_000;
   const logcatEntries = [];
   let logcatChild = null;
   if (platform === 'android') {
@@ -85,11 +136,15 @@ export async function runDaemon(opts, outputDir) {
         const lines = partial.split('\n');
         partial = lines.pop(); // keep incomplete last line
         for (const line of lines) {
-          if (line.trim()) logcatEntries.push(line);
+          if (line.trim()) pushBounded(logcatEntries, line, LOGCAT_MAX, LOGCAT_TRIM);
         }
       });
-      logcatChild.on('error', () => { /* adb not found or device gone — ignore */ });
-    } catch { /* logcat optional — don't block daemon */ }
+      logcatChild.on('error', (e) => {
+        process.stderr.write(`[baremobile] logcat capture disabled: ${e.message}\n`);
+      });
+    } catch (e) {
+      process.stderr.write(`[baremobile] logcat capture disabled: ${e.message}\n`);
+    }
   }
 
   // Android-only handler guard
@@ -175,7 +230,8 @@ export async function runDaemon(opts, outputDir) {
     },
 
     async 'wait-text'({ text, timeout }) {
-      const snap = await page.waitForText(text, timeout ? Number(timeout) : undefined);
+      const t = parseTimeout(timeout);
+      const snap = await page.waitForText(text, t);
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
       const file = join(absDir, `screen-${ts}.yml`);
       writeFileSync(file, snap);
@@ -183,7 +239,8 @@ export async function runDaemon(opts, outputDir) {
     },
 
     async 'wait-state'({ ref, state, timeout }) {
-      const snap = await page.waitForState(ref, state, timeout ? Number(timeout) : undefined);
+      const t = parseTimeout(timeout);
+      const snap = await page.waitForState(ref, state, t);
       const ts = new Date().toISOString().replace(/[:.]/g, '-');
       const file = join(absDir, `screen-${ts}.yml`);
       writeFileSync(file, snap);
@@ -260,12 +317,15 @@ export async function runDaemon(opts, outputDir) {
     try {
       const result = await handler(args || {});
       res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify(result));
-
-      // Exit after close command
+      // For the `close` command we must let the response fully flush before
+      // exiting — calling process.exit() on the next line races the socket
+      // teardown and the client sees ECONNRESET instead of `{ok: true}`.
       if (command === 'close') {
-        server.close();
-        process.exit(0);
+        res.end(JSON.stringify(result), () => {
+          server.close(() => process.exit(0));
+        });
+      } else {
+        res.end(JSON.stringify(result));
       }
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });

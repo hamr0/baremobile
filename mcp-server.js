@@ -50,8 +50,20 @@ const PLATFORM_PROP = {
   platform: { type: 'string', enum: ['android', 'ios'], description: 'Target platform (default: android)' },
 };
 
+// `_platforms` is a non-standard advisory field consumed by the helper
+// below and by tests. MCP-spec clients ignore unknown fields, so adding it
+// is safe and lets us surface platform support to agents that read the
+// description text. Keep this in sync with the underlying page-object API
+// — anything listed here must work uniformly on the named platforms.
+const BOTH = ['android', 'ios'];
+
+function withPlatformTag(tool, platforms = BOTH) {
+  const tag = platforms.length === BOTH.length ? '[android|ios]' : `[${platforms.join('|')}-only]`;
+  return { ...tool, _platforms: platforms, description: `${tag} ${tool.description}` };
+}
+
 const TOOLS = [
-  {
+  withPlatformTag({
     name: 'snapshot',
     description: 'Get the current screen accessibility snapshot. Returns a YAML-like tree with [ref=N] markers on interactive elements.',
     inputSchema: {
@@ -61,8 +73,8 @@ const TOOLS = [
         ...PLATFORM_PROP,
       },
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'tap',
     description: 'Tap an element by its ref from the snapshot. Returns ok — call snapshot to observe.',
     inputSchema: {
@@ -73,8 +85,8 @@ const TOOLS = [
       },
       required: ['ref'],
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'type',
     description: 'Type text into an element by its ref. Taps to focus first (skips if already focused). Returns ok — call snapshot to observe.',
     inputSchema: {
@@ -87,8 +99,8 @@ const TOOLS = [
       },
       required: ['ref', 'text'],
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'press',
     description: 'Press a key: home, back, enter, tab, delete, volume_up, volume_down, power, etc. Returns ok.',
     inputSchema: {
@@ -99,8 +111,8 @@ const TOOLS = [
       },
       required: ['key'],
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'scroll',
     description: 'Scroll an element or the screen. Direction: up, down, left, right. Returns ok.',
     inputSchema: {
@@ -112,8 +124,8 @@ const TOOLS = [
       },
       required: ['ref', 'direction'],
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'swipe',
     description: 'Swipe between two screen coordinates. Returns ok.',
     inputSchema: {
@@ -128,8 +140,8 @@ const TOOLS = [
       },
       required: ['x1', 'y1', 'x2', 'y2'],
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'long_press',
     description: 'Long-press an element by its ref from the snapshot. Returns ok — call snapshot to observe.',
     inputSchema: {
@@ -140,8 +152,8 @@ const TOOLS = [
       },
       required: ['ref'],
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'launch',
     description: 'Launch an app by identifier. Returns ok — call snapshot to observe.',
     inputSchema: {
@@ -152,26 +164,26 @@ const TOOLS = [
       },
       required: ['pkg'],
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'screenshot',
     description: 'Take a screenshot. Returns base64-encoded PNG image.',
     inputSchema: {
       type: 'object',
       properties: { ...PLATFORM_PROP },
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'back',
     description: 'Navigate back. Returns ok.',
     inputSchema: {
       type: 'object',
       properties: { ...PLATFORM_PROP },
     },
-  },
-  {
+  }),
+  withPlatformTag({
     name: 'find_by_text',
-    description: 'Find an interactive element by text match. Returns the ref number or null if not found. Requires a prior snapshot.',
+    description: 'Find an interactive element by text match. Returns JSON {"found": true, "ref": "N"} or {"found": false}. Requires a prior snapshot.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -180,11 +192,38 @@ const TOOLS = [
       },
       required: ['text'],
     },
-  },
+  }),
 ];
 
+/**
+ * Resolve the target platform for a tool call. Centralised so the call
+ * site and every retry tier agree on which `_pages[*]` slot to read or
+ * clear — drift between them produces "cleared the wrong cache" bugs
+ * that are very hard to reproduce.
+ *
+ * Today the resolution is trivial (explicit arg or Android default), but
+ * keeping a single resolver lets Phase 4.4's `platform: 'auto'` plug in
+ * here without changing any retry logic.
+ */
+export function resolvePlatform(args) {
+  const p = (args || {}).platform;
+  if (p === 'ios' || p === 'android') return p;
+  return 'android';
+}
+
 async function handleToolCall(name, args) {
-  const platform = args.platform || 'android';
+  const platform = resolvePlatform(args);
+
+  // Refuse tool calls that target a platform the tool doesn't support.
+  // Today every tool supports both; this gate exists so Phase 3.1's iOS-only
+  // `activate` (and any future android-only tools) fail with a clear message
+  // instead of a cryptic "method not on page" error.
+  const tool = TOOLS.find(t => t.name === name);
+  if (tool && Array.isArray(tool._platforms) && !tool._platforms.includes(platform)) {
+    throw new Error(
+      `Tool "${name}" is not supported on platform "${platform}". Supported: ${tool._platforms.join(', ')}.`
+    );
+  }
 
   switch (name) {
     case 'snapshot': {
@@ -251,7 +290,10 @@ async function handleToolCall(name, args) {
     case 'find_by_text': {
       const page = await getPage(platform);
       const ref = page.findByText(args.text);
-      return ref !== null ? String(ref) : 'null';
+      // Return a structured payload so the agent doesn't have to disambiguate
+      // a "not found" sentinel from a label that happens to be the string
+      // "null". The wrapper below JSON.stringifies non-string returns.
+      return ref !== null ? { found: true, ref: String(ref) } : { found: false };
     }
     default:
       throw new Error(`Unknown tool: ${name}`);
@@ -295,9 +337,10 @@ async function handleMessage(msg) {
         // Auto-reconnect: if WDA/device connection died, clear cache and retry once
         const msg = err?.message || '';
         const isConnErr = err?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET'
+          || err?.code === 'WDA_TIMEOUT'
           || msg.includes('fetch failed') || msg.includes('ECONNREFUSED')
           || msg.includes('ECONNRESET') || msg.includes('UND_ERR');
-        const platform = (args || {}).platform || 'android';
+        const platform = resolvePlatform(args);
         if (isConnErr && _pages[platform]) {
           try { _pages[platform].close(); } catch { /* ignore */ }
           _pages[platform] = null;
@@ -318,8 +361,9 @@ async function handleMessage(msg) {
     } catch (err) {
       const msg = err?.message || '';
       const isConnErr = err?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET'
+        || err?.code === 'WDA_TIMEOUT'
         || msg.includes('fetch failed') || msg.includes('ECONNREFUSED');
-      const platform = (args || {}).platform || 'android';
+      const platform = resolvePlatform(args);
 
       // Tier 2: iOS auto-restart — reconnect failed, try restarting WDA tunnel
       if (isConnErr && platform === 'ios') {
