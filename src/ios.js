@@ -14,6 +14,10 @@ import fs from 'node:fs/promises';
 import { prune } from './prune.js';
 import { formatTree } from './aria.js';
 import { listDevices, forward } from './usbmux.js';
+import {
+  ElementNotFound, InvalidArgument, WdaTimeout, WdaUnavailable, WaitTimeout,
+} from './errors.js';
+import { traceCall } from './debug.js';
 
 const WIFI_CACHE = '/tmp/baremobile-ios-wifi';
 
@@ -28,22 +32,19 @@ const WDA_DEFAULT_TIMEOUT_MS = Number(process.env.BAREMOBILE_WDA_TIMEOUT_MS) || 
 function createWda(baseUrl) {
   async function wdaFetch(path, init = {}) {
     const url = `${baseUrl}${path}`;
+    const method = init.method || 'GET';
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
         // Per-attempt timeout — total wait is bounded by 3 × timeout + 2 ×
         // 500ms backoff. Callers may override via init.signal (e.g. tests).
         const signal = init.signal ?? AbortSignal.timeout(WDA_DEFAULT_TIMEOUT_MS);
-        const res = await fetch(url, { ...init, signal });
+        const res = await traceCall('wda', `${method} ${path}`,
+          () => fetch(url, { ...init, signal }));
         return res.json();
       } catch (e) {
         const isTimeout = e?.name === 'TimeoutError' || e?.name === 'AbortError';
         if (attempt === 2) {
-          if (isTimeout) {
-            const err = new Error(`WDA request timed out after ${WDA_DEFAULT_TIMEOUT_MS}ms: ${path}`);
-            err.code = 'WDA_TIMEOUT';
-            err.cause = e;
-            throw err;
-          }
+          if (isTimeout) throw new WdaTimeout(path, WDA_DEFAULT_TIMEOUT_MS, { cause: e });
           throw e;
         }
         await new Promise(r => setTimeout(r, 500));
@@ -264,7 +265,7 @@ export function translateWda(xml) {
 // --- Coordinate helpers ---
 
 function boundsCenter(bounds) {
-  if (!bounds) throw new Error('Node has no bounds');
+  if (!bounds) throw new InvalidArgument('Node has no bounds');
   return {
     x: Math.round((bounds.x1 + bounds.x2) / 2),
     y: Math.round((bounds.y1 + bounds.y2) / 2),
@@ -312,10 +313,9 @@ export async function connect(opts = {}) {
   // Health check — fail fast with actionable message
   if (!await wdaReady(baseUrl, 3000)) {
     cleanup();
-    throw new Error(
-      `iOS: WDA not reachable at ${baseUrl}. ` +
-      'Ensure iPhone is connected via USB and WDA is running (npx baremobile setup).'
-    );
+    throw new WdaUnavailable(baseUrl, {
+      cause: new Error('Ensure iPhone is connected via USB and WDA is running (npx baremobile setup).'),
+    });
   }
 
   const { wdaGet, wdaPost } = createWda(baseUrl);
@@ -334,7 +334,7 @@ export async function connect(opts = {}) {
   try {
     const sessResult = await wdaPost('/session', { capabilities: {} });
     sid = sessResult.sessionId;
-    if (!sid) throw new Error('WDA /session returned no sessionId');
+    if (!sid) throw new WdaUnavailable(baseUrl, { cause: new Error('WDA /session returned no sessionId') });
 
     // Cache screen dimensions and compute Retina scale factor. Failure here
     // is non-fatal — fall back to safe defaults — but we still need cleanup
@@ -392,7 +392,7 @@ export async function connect(opts = {}) {
     async tap(ref) {
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
-      if (!node) throw new Error(`tap(${ref}): no element with that ref`);
+      if (!node) throw new ElementNotFound(ref);
       const { x, y } = boundsCenter(node.bounds);
       await wdaTap(x, y);
     },
@@ -400,7 +400,7 @@ export async function connect(opts = {}) {
     async type(ref, text, typeOpts = {}) {
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
-      if (!node) throw new Error(`type(${ref}): no element with that ref`);
+      if (!node) throw new ElementNotFound(ref);
 
       // Coordinate tap to focus
       const { x, y } = boundsCenter(node.bounds);
@@ -434,7 +434,7 @@ export async function connect(opts = {}) {
         volume_down: () => wdaPost('/wda/pressButton', { name: 'volumeDown' }),
       };
       if (actions[key]) return actions[key]();
-      throw new Error(`press("${key}"): not supported on iOS. Use tap(ref) instead.`);
+      throw new InvalidArgument(`press("${key}"): not supported on iOS. Use tap(ref) instead.`);
     },
 
     async swipe(x1, y1, x2, y2, duration = 300) {
@@ -448,7 +448,7 @@ export async function connect(opts = {}) {
     async scroll(ref, direction) {
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
-      if (!node) throw new Error(`scroll(${ref}): no element with that ref`);
+      if (!node) throw new ElementNotFound(ref);
       const { x, y } = boundsCenter(node.bounds);
       const b = node.bounds;
       const h = (b.y2 - b.y1) / 3;
@@ -461,7 +461,7 @@ export async function connect(opts = {}) {
         right: { x1: x + w, y1: y, x2: x - w, y2: y },
       };
       const o = offsets[direction];
-      if (!o) throw new Error(`scroll: unknown direction "${direction}"`);
+      if (!o) throw new InvalidArgument(`scroll: unknown direction "${direction}"`);
 
       await wdaPost(`/session/${sid}/wda/dragfromtoforduration`, {
         fromX: o.x1, fromY: o.y1,
@@ -473,7 +473,7 @@ export async function connect(opts = {}) {
     async longPress(ref) {
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
-      if (!node) throw new Error(`longPress(${ref}): no element with that ref`);
+      if (!node) throw new ElementNotFound(ref);
       const { x, y } = boundsCenter(node.bounds);
       await wdaPost(`/session/${sid}/wda/touchAndHold`, { x, y, duration: 1.0 });
     },
@@ -560,7 +560,7 @@ export async function connect(opts = {}) {
         if (snap.includes(text)) return snap;
         await new Promise(r => setTimeout(r, 1000));
       }
-      throw new Error(`waitForText("${text}") timed out after ${timeout}ms`);
+      throw new WaitTimeout(`text "${text}"`, timeout);
     },
 
     async waitForState(ref, state, timeout = 10_000) {
@@ -581,7 +581,7 @@ export async function connect(opts = {}) {
         }
         await new Promise(r => setTimeout(r, 1000));
       }
-      throw new Error(`waitForState: ref=${ref} not in state "${state}" after ${timeout}ms`);
+      throw new WaitTimeout(`ref ${ref} state "${state}"`, timeout);
     },
 
     findByText(text) {

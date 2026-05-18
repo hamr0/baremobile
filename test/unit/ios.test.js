@@ -673,8 +673,13 @@ describe('iOS module — unit tests', () => {
         await assert.rejects(
           () => connect({ host: '127.0.0.1', port }),
           // /session returns 500 with a body — sessionId is missing, so
-          // the explicit "no sessionId" guard fires.
-          /sessionId|simulated|boom/i,
+          // the explicit "no sessionId" guard fires and the typed
+          // WdaUnavailable surfaces (with the original message as cause).
+          (e) => {
+            assert.strictEqual(e.code, 'WdaUnavailable');
+            assert.match(e.cause?.message || '', /sessionId|simulated|boom/i);
+            return true;
+          },
         );
       } finally {
         server.close();

@@ -1,6 +1,7 @@
 // Interaction primitives — tap, type, press, swipe, scroll, long-press
 
 import { shell } from './adb.js';
+import { ElementNotFound, InvalidArgument } from './errors.js';
 
 const KEY_MAP = {
   back: 4, home: 3, enter: 66, delete: 67, tab: 61, escape: 111,
@@ -9,7 +10,7 @@ const KEY_MAP = {
 };
 
 function boundsCenter(bounds) {
-  if (!bounds) throw new Error('Node has no bounds');
+  if (!bounds) throw new InvalidArgument('Node has no bounds');
   return {
     x: Math.round((bounds.x1 + bounds.x2) / 2),
     y: Math.round((bounds.y1 + bounds.y2) / 2),
@@ -19,7 +20,7 @@ function boundsCenter(bounds) {
 function resolveRef(ref, refMap) {
   const key = typeof ref === 'string' ? Number(ref) : ref;
   const node = refMap.get(key);
-  if (!node) throw new Error(`No node with ref=${ref}`);
+  if (!node) throw new ElementNotFound(ref);
   return node;
 }
 
@@ -73,7 +74,7 @@ export async function type(ref, text, refMap, opts = {}) {
 export async function press(key, opts = {}) {
   const code = KEY_MAP[key] ?? key;
   if (typeof code !== 'number' && isNaN(Number(code))) {
-    throw new Error(`Unknown key: ${key}. Known: ${Object.keys(KEY_MAP).join(', ')}`);
+    throw new InvalidArgument(`Unknown key: ${key}. Known: ${Object.keys(KEY_MAP).join(', ')}`);
   }
   await shell(`input keyevent ${code}`, opts);
 }

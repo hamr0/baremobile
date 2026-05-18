@@ -2,6 +2,7 @@
 
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { traceCall } from './debug.js';
 
 const execAsync = promisify(execFile);
 
@@ -20,7 +21,7 @@ export async function exec(args, opts = {}) {
     maxBuffer: 4 * 1024 * 1024,
   };
   if (opts.encoding !== undefined) execOpts.encoding = opts.encoding;
-  const { stdout } = await execAsync('adb', cmd, execOpts);
+  const { stdout } = await traceCall('adb', cmd, () => execAsync('adb', cmd, execOpts));
   return stdout;
 }
 

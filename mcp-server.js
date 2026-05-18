@@ -16,6 +16,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkIosCert } from './src/ios-cert.js';
+import { isConnectionError } from './src/errors.js';
 
 const __dirname = import.meta.dirname;
 const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8')).version;
@@ -49,7 +50,11 @@ async function getPage(platform = 'android') {
 }
 
 const PLATFORM_PROP = {
-  platform: { type: 'string', enum: ['android', 'ios'], description: 'Target platform (default: android)' },
+  platform: {
+    type: 'string',
+    enum: ['android', 'ios', 'auto'],
+    description: 'Target platform. "auto" probes ADB then usbmuxd and caches the choice. Default: android.',
+  },
 };
 
 // `_platforms` is a non-standard advisory field consumed by the helper
@@ -215,18 +220,54 @@ const TOOLS = [
  * clear — drift between them produces "cleared the wrong cache" bugs
  * that are very hard to reproduce.
  *
- * Today the resolution is trivial (explicit arg or Android default), but
- * keeping a single resolver lets Phase 4.4's `platform: 'auto'` plug in
- * here without changing any retry logic.
+ * `platform: 'auto'` probes ADB (Android) then usbmuxd (iOS) and caches
+ * the resolution for the process lifetime. The cache key is the literal
+ * "auto" so we only probe once.
+ */
+let _autoPlatformCache = null;
+
+export async function resolvePlatformAsync(args) {
+  const p = (args || {}).platform;
+  if (p === 'ios' || p === 'android') return p;
+  if (p === 'auto') {
+    if (_autoPlatformCache) return _autoPlatformCache;
+    // Probe ADB first — fastest when an emulator/USB Android device is up.
+    try {
+      const adb = await import('./src/adb.js');
+      const devs = await adb.listDevices();
+      if (devs.length > 0) { _autoPlatformCache = 'android'; return 'android'; }
+    } catch { /* adb missing */ }
+    // Then usbmuxd (iOS).
+    try {
+      const usb = await import('./src/usbmux.js');
+      const devs = await usb.listDevices();
+      if (devs.length > 0) { _autoPlatformCache = 'ios'; return 'ios'; }
+    } catch { /* usbmuxd missing */ }
+    // Nothing connected — fall back to Android default so getPage produces
+    // a meaningful "No ADB devices found" error rather than a silent miss.
+    return 'android';
+  }
+  return 'android';
+}
+
+/**
+ * Synchronous resolver used by the retry tiers (which can't await inside
+ * the existing call shape without a wider refactor). Honours an explicit
+ * 'ios'/'android'; for 'auto' returns the cached result if one exists,
+ * otherwise 'android'.
  */
 export function resolvePlatform(args) {
   const p = (args || {}).platform;
   if (p === 'ios' || p === 'android') return p;
+  if (p === 'auto' && _autoPlatformCache) return _autoPlatformCache;
   return 'android';
 }
 
+/** Test hook — reset the auto-detect cache. */
+export function _resetAutoPlatformCache() { _autoPlatformCache = null; }
+
 async function handleToolCall(name, args) {
-  const platform = resolvePlatform(args);
+  const platform = await resolvePlatformAsync(args);
 
   // Refuse tool calls that target a platform the tool doesn't support.
   // Today every tool supports both; this gate exists so Phase 3.1's iOS-only
@@ -356,11 +397,7 @@ async function handleMessage(msg) {
         result = await handleToolCall(name, args || {});
       } catch (err) {
         // Auto-reconnect: if WDA/device connection died, clear cache and retry once
-        const msg = err?.message || '';
-        const isConnErr = err?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET'
-          || err?.code === 'WDA_TIMEOUT'
-          || msg.includes('fetch failed') || msg.includes('ECONNREFUSED')
-          || msg.includes('ECONNRESET') || msg.includes('UND_ERR');
+        const isConnErr = isConnectionError(err);
         const platform = resolvePlatform(args);
         if (isConnErr && _pages[platform]) {
           try { _pages[platform].close(); } catch { /* ignore */ }
@@ -380,10 +417,7 @@ async function handleMessage(msg) {
         content: [{ type: 'text', text: typeof result === 'string' ? result : JSON.stringify(result) }],
       });
     } catch (err) {
-      const msg = err?.message || '';
-      const isConnErr = err?.code === 'ECONNREFUSED' || err?.code === 'ECONNRESET'
-        || err?.code === 'WDA_TIMEOUT'
-        || msg.includes('fetch failed') || msg.includes('ECONNREFUSED');
+      const isConnErr = isConnectionError(err);
       const platform = resolvePlatform(args);
 
       // Tier 2: iOS auto-restart — reconnect failed, try restarting WDA tunnel
@@ -413,7 +447,7 @@ async function handleMessage(msg) {
         ? ' WDA/ADB may be down. Reconnect USB and run `npx baremobile setup`.'
         : '';
       return jsonrpcResponse(id, {
-        content: [{ type: 'text', text: `Error: ${msg}${hint}` }],
+        content: [{ type: 'text', text: `Error: ${err?.message || String(err)}${hint}` }],
         isError: true,
       });
     }

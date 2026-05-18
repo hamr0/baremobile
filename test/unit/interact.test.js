@@ -68,7 +68,7 @@ describe('tap', () => {
     const refMap = new Map();
     await assert.rejects(
       () => interact.tap(99, refMap, { serial: 'fake' }),
-      /No node with ref=99/,
+      /No element with ref "99"/,
     );
   });
 
@@ -94,7 +94,7 @@ describe('scroll', () => {
     const refMap = new Map();
     await assert.rejects(
       () => interact.scroll(99, 'down', refMap, { serial: 'fake' }),
-      /No node with ref=99/,
+      /No element with ref "99"/,
     );
   });
 });
@@ -104,7 +104,7 @@ describe('type', () => {
     const refMap = new Map();
     await assert.rejects(
       () => interact.type(99, 'hello', refMap, { serial: 'fake' }),
-      /No node with ref=99/,
+      /No element with ref "99"/,
     );
   });
 });
@@ -114,7 +114,7 @@ describe('longPress', () => {
     const refMap = new Map();
     await assert.rejects(
       () => interact.longPress(99, refMap, { serial: 'fake' }),
-      /No node with ref=99/,
+      /No element with ref "99"/,
     );
   });
 });

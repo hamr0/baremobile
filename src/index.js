@@ -4,6 +4,7 @@ import {
   listDevices, exec, shell, dumpXml, screenSize,
   shellQuote, validatePackage, validateIntentAction, validateExtraKey,
 } from './adb.js';
+import { DeviceError, WaitTimeout } from './errors.js';
 import { isTermux, resolveTermuxDevice } from './termux.js';
 import { parseXml } from './xml.js';
 import { prune } from './prune.js';
@@ -19,9 +20,9 @@ import { loadSavedDevice, reconnectWifi } from './wifi-persist.js';
 export async function snapshot(opts = {}) {
   const xml = await dumpXml(opts);
   const root = parseXml(xml);
-  if (!root) throw new Error('Failed to parse XML tree');
+  if (!root) throw new DeviceError('Failed to parse XML tree');
   const { tree } = prune(root);
-  if (!tree) throw new Error('Entire tree pruned away');
+  if (!tree) throw new DeviceError('Entire tree pruned away');
   return formatTree(tree);
 }
 
@@ -46,7 +47,7 @@ export async function connect(opts = {}) {
           await reconnectWifi(saved);
           devices = await listDevices();
         }
-        if (devices.length === 0) throw new Error('No ADB devices found. Is a device/emulator connected?');
+        if (devices.length === 0) throw new DeviceError('No ADB devices found. Is a device/emulator connected?');
       }
       serial = devices[0].serial;
     }
@@ -62,9 +63,9 @@ export async function connect(opts = {}) {
     async snapshot() {
       const xml = await dumpXml(adbOpts);
       const root = parseXml(xml);
-      if (!root) throw new Error('Failed to parse XML tree');
+      if (!root) throw new DeviceError('Failed to parse XML tree');
       const { tree, refMap } = prune(root);
-      if (!tree) throw new Error('Entire tree pruned away');
+      if (!tree) throw new DeviceError('Entire tree pruned away');
       _refMap = refMap;
       return formatTree(tree);
     },
@@ -143,7 +144,7 @@ export async function connect(opts = {}) {
         if (snap.includes(text)) return snap;
         await new Promise(r => setTimeout(r, 500));
       }
-      throw new Error(`waitForText: "${text}" not found after ${timeout}ms`);
+      throw new WaitTimeout(`text "${text}"`, timeout);
     },
 
     async waitForState(ref, state, timeout = 10_000) {
@@ -163,7 +164,7 @@ export async function connect(opts = {}) {
         }
         await new Promise(r => setTimeout(r, 500));
       }
-      throw new Error(`waitForState: ref=${ref} not in state "${state}" after ${timeout}ms`);
+      throw new WaitTimeout(`ref ${ref} state "${state}"`, timeout);
     },
 
     async screenshot() {
