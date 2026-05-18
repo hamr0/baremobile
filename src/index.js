@@ -4,7 +4,7 @@ import {
   listDevices, exec, shell, dumpXml, screenSize,
   shellQuote, validatePackage, validateIntentAction, validateExtraKey,
 } from './adb.js';
-import { DeviceError, WaitTimeout } from './errors.js';
+import { DeviceError, WaitTimeout, SelectorNotFound, InvalidArgument } from './errors.js';
 import { isTermux, resolveTermuxDevice } from './termux.js';
 import { parseXml } from './xml.js';
 import { prune } from './prune.js';
@@ -56,25 +56,55 @@ export async function connect(opts = {}) {
   const adbOpts = { serial };
   let _refMap = new Map();
 
+  // Resolve a refOrSelector to a numeric ref. A ref is a string or number
+  // that maps to the current snapshot's _refMap. A selector is a plain
+  // object like {text: "Settings"} or {contentDesc: "Search"} — we
+  // re-snapshot (so the match is against fresh UI) and substring-match.
+  // Throws SelectorNotFound if the selector matches nothing.
+  async function resolveSelector(refOrSelector) {
+    if (typeof refOrSelector === 'string' || typeof refOrSelector === 'number') {
+      return refOrSelector;
+    }
+    if (!refOrSelector || typeof refOrSelector !== 'object') {
+      throw new InvalidArgument(`Selector must be a ref (string/number) or object {text|contentDesc}; got ${typeof refOrSelector}`);
+    }
+    if (!('text' in refOrSelector) && !('contentDesc' in refOrSelector)) {
+      throw new InvalidArgument(`Selector object must have at least one of: text, contentDesc`);
+    }
+    // Refresh the snapshot so the match is against current UI.
+    await page.snapshot();
+    for (const [ref, node] of _refMap) {
+      if (refOrSelector.text != null && node.text?.includes(refOrSelector.text)) return ref;
+      if (refOrSelector.contentDesc != null && node.contentDesc?.includes(refOrSelector.contentDesc)) return ref;
+    }
+    throw new SelectorNotFound(refOrSelector);
+  }
+
   const page = {
     serial,
     platform: 'android',
 
-    async snapshot() {
+    /**
+     * Snapshot the UI.
+     * @param {{maxDepth?: number, maxNodes?: number}} [snapOpts]
+     */
+    async snapshot(snapOpts = {}) {
       const xml = await dumpXml(adbOpts);
       const root = parseXml(xml);
       if (!root) throw new DeviceError('Failed to parse XML tree');
-      const { tree, refMap } = prune(root);
+      const { tree, refMap } = prune(root, snapOpts);
       if (!tree) throw new DeviceError('Entire tree pruned away');
       _refMap = refMap;
       return formatTree(tree);
     },
 
-    async tap(ref) {
+    async tap(refOrSelector) {
+      const ref = await resolveSelector(refOrSelector);
       await interact.tap(ref, _refMap, adbOpts);
     },
 
-    async type(ref, text, opts = {}) {
+    async type(refOrSelector, text, opts = {}) {
+      const ref = await resolveSelector(refOrSelector);
       await interact.type(ref, text, _refMap, { ...adbOpts, ...opts });
     },
 
@@ -86,11 +116,13 @@ export async function connect(opts = {}) {
       await interact.swipe(x1, y1, x2, y2, duration, adbOpts);
     },
 
-    async scroll(ref, direction) {
+    async scroll(refOrSelector, direction) {
+      const ref = await resolveSelector(refOrSelector);
       await interact.scroll(ref, direction, _refMap, adbOpts);
     },
 
-    async longPress(ref) {
+    async longPress(refOrSelector) {
+      const ref = await resolveSelector(refOrSelector);
       await interact.longPress(ref, _refMap, adbOpts);
     },
 
@@ -145,6 +177,25 @@ export async function connect(opts = {}) {
         await new Promise(r => setTimeout(r, 500));
       }
       throw new WaitTimeout(`text "${text}"`, timeout);
+    },
+
+    /**
+     * Resolve once two consecutive snapshots taken `stableMs` apart match
+     * (string equality after formatTree). Useful for waiting out
+     * animations / list refreshes before acting. Throws WaitTimeout if
+     * the UI never stabilises within `timeout`.
+     */
+    async waitForStable({ pollMs = 250, stableMs = 500, timeout = 5000 } = {}) {
+      const start = Date.now();
+      let prev = await page.snapshot();
+      let prevAt = Date.now();
+      while (Date.now() - start < timeout) {
+        await new Promise(r => setTimeout(r, pollMs));
+        const next = await page.snapshot();
+        if (next === prev && (Date.now() - prevAt) >= stableMs) return next;
+        if (next !== prev) { prev = next; prevAt = Date.now(); }
+      }
+      throw new WaitTimeout(`UI to stabilise (pollMs=${pollMs}, stableMs=${stableMs})`, timeout);
     },
 
     async waitForState(ref, state, timeout = 10_000) {

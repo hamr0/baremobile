@@ -15,7 +15,7 @@ import { prune } from './prune.js';
 import { formatTree } from './aria.js';
 import { listDevices, forward } from './usbmux.js';
 import {
-  ElementNotFound, InvalidArgument, WdaTimeout, WdaUnavailable, WaitTimeout,
+  ElementNotFound, SelectorNotFound, InvalidArgument, WdaTimeout, WdaUnavailable, WaitTimeout,
 } from './errors.js';
 import { traceCall } from './debug.js';
 
@@ -370,7 +370,29 @@ export async function connect(opts = {}) {
     });
   }
 
-  const page = {
+  // Selector resolution — see comment in src/index.js for the shape.
+  // `page` is forward-declared via `let` below so this closure can call
+  // page.snapshot() at invocation time (not declaration time).
+  let page;
+  async function resolveSelector(refOrSelector) {
+    if (typeof refOrSelector === 'string' || typeof refOrSelector === 'number') {
+      return refOrSelector;
+    }
+    if (!refOrSelector || typeof refOrSelector !== 'object') {
+      throw new InvalidArgument(`Selector must be a ref (string/number) or object {text|contentDesc}; got ${typeof refOrSelector}`);
+    }
+    if (!('text' in refOrSelector) && !('contentDesc' in refOrSelector)) {
+      throw new InvalidArgument(`Selector object must have at least one of: text, contentDesc`);
+    }
+    await page.snapshot();
+    for (const [ref, node] of _refMap) {
+      if (refOrSelector.text != null && node.text?.includes(refOrSelector.text)) return ref;
+      if (refOrSelector.contentDesc != null && node.contentDesc?.includes(refOrSelector.contentDesc)) return ref;
+    }
+    throw new SelectorNotFound(refOrSelector);
+  }
+
+  page = {
     serial: 'ios',
     platform: 'ios',
     baseUrl,
@@ -379,17 +401,22 @@ export async function connect(opts = {}) {
       return { x: Math.round(px / _scaleFactor), y: Math.round(py / _scaleFactor) };
     },
 
-    async snapshot() {
+    /**
+     * Snapshot the UI.
+     * @param {{maxDepth?: number, maxNodes?: number}} [snapOpts]
+     */
+    async snapshot(snapOpts = {}) {
       const r = await wdaGet('/source');
       const root = translateWda(r.value);
       _navBackNode = findNavBack(root);
-      const { tree, refMap } = prune(root);
+      const { tree, refMap } = prune(root, snapOpts);
       _refMap = refMap;
       if (!tree) return '';
       return formatTree(tree);
     },
 
-    async tap(ref) {
+    async tap(refOrSelector) {
+      const ref = await resolveSelector(refOrSelector);
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
       if (!node) throw new ElementNotFound(ref);
@@ -397,7 +424,8 @@ export async function connect(opts = {}) {
       await wdaTap(x, y);
     },
 
-    async type(ref, text, typeOpts = {}) {
+    async type(refOrSelector, text, typeOpts = {}) {
+      const ref = await resolveSelector(refOrSelector);
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
       if (!node) throw new ElementNotFound(ref);
@@ -445,7 +473,8 @@ export async function connect(opts = {}) {
       });
     },
 
-    async scroll(ref, direction) {
+    async scroll(refOrSelector, direction) {
+      const ref = await resolveSelector(refOrSelector);
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
       if (!node) throw new ElementNotFound(ref);
@@ -470,7 +499,8 @@ export async function connect(opts = {}) {
       });
     },
 
-    async longPress(ref) {
+    async longPress(refOrSelector) {
+      const ref = await resolveSelector(refOrSelector);
       const key = typeof ref === 'string' ? Number(ref) : ref;
       const node = _refMap.get(key);
       if (!node) throw new ElementNotFound(ref);
@@ -561,6 +591,23 @@ export async function connect(opts = {}) {
         await new Promise(r => setTimeout(r, 1000));
       }
       throw new WaitTimeout(`text "${text}"`, timeout);
+    },
+
+    /**
+     * Resolve once two consecutive snapshots taken `stableMs` apart match.
+     * See src/index.js for the Android-side doc comment.
+     */
+    async waitForStable({ pollMs = 250, stableMs = 500, timeout = 5000 } = {}) {
+      const start = Date.now();
+      let prev = await page.snapshot();
+      let prevAt = Date.now();
+      while (Date.now() - start < timeout) {
+        await new Promise(r => setTimeout(r, pollMs));
+        const next = await page.snapshot();
+        if (next === prev && (Date.now() - prevAt) >= stableMs) return next;
+        if (next !== prev) { prev = next; prevAt = Date.now(); }
+      }
+      throw new WaitTimeout(`UI to stabilise (pollMs=${pollMs}, stableMs=${stableMs})`, timeout);
     },
 
     async waitForState(ref, state, timeout = 10_000) {

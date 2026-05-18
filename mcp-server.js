@@ -16,7 +16,7 @@ import { mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { checkIosCert } from './src/ios-cert.js';
-import { isConnectionError } from './src/errors.js';
+import { isConnectionError, InvalidArgument } from './src/errors.js';
 
 const __dirname = import.meta.dirname;
 const PKG_VERSION = JSON.parse(readFileSync(join(__dirname, 'package.json'), 'utf8')).version;
@@ -77,34 +77,48 @@ const TOOLS = [
       type: 'object',
       properties: {
         maxChars: { type: 'number', description: 'Max chars to return inline. Larger snapshots are saved to .baremobile/ and a file path is returned instead. Default: 30000.' },
+        maxDepth: { type: 'number', description: 'Truncate the tree below this depth. Pruned subtrees collapse to "…".' },
+        maxNodes: { type: 'number', description: 'Cap the total kept-node count after pruning (DFS order).' },
         ...PLATFORM_PROP,
       },
     },
   }),
   withPlatformTag({
     name: 'tap',
-    description: 'Tap an element by its ref from the snapshot. Returns ok — call snapshot to observe.',
+    description: 'Tap an element. Pass `ref` from snapshot OR `selector` {text|contentDesc} to re-snapshot and match. Returns ok.',
     inputSchema: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'Element ref from snapshot (e.g. "8")' },
+        ref: { type: 'string', description: 'Element ref from snapshot (e.g. "8"). Mutually exclusive with selector.' },
+        selector: {
+          type: 'object',
+          description: 'Substring selector instead of a ref. Triggers a fresh snapshot.',
+          properties: {
+            text: { type: 'string' },
+            contentDesc: { type: 'string' },
+          },
+        },
         ...PLATFORM_PROP,
       },
-      required: ['ref'],
     },
   }),
   withPlatformTag({
     name: 'type',
-    description: 'Type text into an element by its ref. Taps to focus first (skips if already focused). Returns ok — call snapshot to observe.',
+    description: 'Type text into an element. Pass `ref` or `selector`. Taps to focus first; `clear` clears existing content. Returns ok.',
     inputSchema: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'Element ref from snapshot' },
+        ref: { type: 'string', description: 'Element ref from snapshot. Mutually exclusive with selector.' },
+        selector: {
+          type: 'object',
+          description: 'Substring selector {text|contentDesc}.',
+          properties: { text: { type: 'string' }, contentDesc: { type: 'string' } },
+        },
         text: { type: 'string', description: 'Text to type' },
         clear: { type: 'boolean', description: 'Clear existing content first (default: false)' },
         ...PLATFORM_PROP,
       },
-      required: ['ref', 'text'],
+      required: ['text'],
     },
   }),
   withPlatformTag({
@@ -121,15 +135,20 @@ const TOOLS = [
   }),
   withPlatformTag({
     name: 'scroll',
-    description: 'Scroll an element or the screen. Direction: up, down, left, right. Returns ok.',
+    description: 'Scroll an element. Pass `ref` or `selector`. Direction: up, down, left, right. Returns ok.',
     inputSchema: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'Element ref to scroll (e.g. "3")' },
+        ref: { type: 'string', description: 'Element ref to scroll (e.g. "3").' },
+        selector: {
+          type: 'object',
+          description: 'Substring selector {text|contentDesc}.',
+          properties: { text: { type: 'string' }, contentDesc: { type: 'string' } },
+        },
         direction: { type: 'string', enum: ['up', 'down', 'left', 'right'], description: 'Scroll direction' },
         ...PLATFORM_PROP,
       },
-      required: ['ref', 'direction'],
+      required: ['direction'],
     },
   }),
   withPlatformTag({
@@ -150,14 +169,18 @@ const TOOLS = [
   }),
   withPlatformTag({
     name: 'long_press',
-    description: 'Long-press an element by its ref from the snapshot. Returns ok — call snapshot to observe.',
+    description: 'Long-press an element. Pass `ref` or `selector`. Returns ok.',
     inputSchema: {
       type: 'object',
       properties: {
-        ref: { type: 'string', description: 'Element ref from snapshot' },
+        ref: { type: 'string', description: 'Element ref from snapshot.' },
+        selector: {
+          type: 'object',
+          description: 'Substring selector {text|contentDesc}.',
+          properties: { text: { type: 'string' }, contentDesc: { type: 'string' } },
+        },
         ...PLATFORM_PROP,
       },
-      required: ['ref'],
     },
   }),
   withPlatformTag({
@@ -198,6 +221,19 @@ const TOOLS = [
     inputSchema: {
       type: 'object',
       properties: { ...PLATFORM_PROP },
+    },
+  }),
+  withPlatformTag({
+    name: 'wait_stable',
+    description: 'Block until two consecutive snapshots taken `stableMs` apart are identical. Use before acting on UI that may still be animating. Returns the stabilised snapshot text.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pollMs: { type: 'number', description: 'Poll interval between snapshots (default 250).' },
+        stableMs: { type: 'number', description: 'Required idle window before returning (default 500).' },
+        timeout: { type: 'number', description: 'Total ms before giving up (default 5000).' },
+        ...PLATFORM_PROP,
+      },
     },
   }),
   withPlatformTag({
@@ -283,7 +319,10 @@ async function handleToolCall(name, args) {
   switch (name) {
     case 'snapshot': {
       const page = await getPage(platform);
-      let text = await page.snapshot();
+      const snapOpts = {};
+      if (args.maxDepth != null) snapOpts.maxDepth = args.maxDepth;
+      if (args.maxNodes != null) snapOpts.maxNodes = args.maxNodes;
+      let text = await page.snapshot(snapOpts);
       // Prepend cert warning on first iOS snapshot
       if (platform === 'ios' && _iosCertWarning) {
         text = `⚠️ ${_iosCertWarning}\n\n${text}`;
@@ -297,13 +336,17 @@ async function handleToolCall(name, args) {
       return text;
     }
     case 'tap': {
+      const target = args.ref ?? args.selector;
+      if (target == null) throw new InvalidArgument('tap requires `ref` or `selector`');
       const page = await getPage(platform);
-      await page.tap(args.ref);
+      await page.tap(target);
       return 'ok';
     }
     case 'type': {
+      const target = args.ref ?? args.selector;
+      if (target == null) throw new InvalidArgument('type requires `ref` or `selector`');
       const page = await getPage(platform);
-      await page.type(args.ref, args.text, { clear: args.clear });
+      await page.type(target, args.text, { clear: args.clear });
       return 'ok';
     }
     case 'press': {
@@ -312,8 +355,10 @@ async function handleToolCall(name, args) {
       return 'ok';
     }
     case 'scroll': {
+      const target = args.ref ?? args.selector;
+      if (target == null) throw new InvalidArgument('scroll requires `ref` or `selector`');
       const page = await getPage(platform);
-      await page.scroll(args.ref, args.direction);
+      await page.scroll(target, args.direction);
       return 'ok';
     }
     case 'swipe': {
@@ -322,9 +367,25 @@ async function handleToolCall(name, args) {
       return 'ok';
     }
     case 'long_press': {
+      const target = args.ref ?? args.selector;
+      if (target == null) throw new InvalidArgument('long_press requires `ref` or `selector`');
       const page = await getPage(platform);
-      await page.longPress(args.ref);
+      await page.longPress(target);
       return 'ok';
+    }
+    case 'wait_stable': {
+      const page = await getPage(platform);
+      const snap = await page.waitForStable({
+        pollMs: args.pollMs,
+        stableMs: args.stableMs,
+        timeout: args.timeout,
+      });
+      const limit = args.maxChars ?? MAX_CHARS_DEFAULT;
+      if (snap.length > limit) {
+        const file = saveSnapshot(snap);
+        return `Stabilised snapshot (${snap.length} chars) saved to ${file}`;
+      }
+      return snap;
     }
     case 'launch': {
       const page = await getPage(platform);

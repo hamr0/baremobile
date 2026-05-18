@@ -38,6 +38,7 @@ describe('MCP tools/list', () => {
     assert.deepEqual(names, [
       'activate', 'back', 'find_by_text', 'launch', 'long_press', 'press',
       'screenshot', 'scroll', 'snapshot', 'swipe', 'tap', 'type',
+      'wait_stable',
     ]);
   });
 
@@ -50,19 +51,24 @@ describe('MCP tools/list', () => {
     }
   });
 
-  it('tap requires ref', () => {
+  it('tap requires neither ref nor selector at the schema level (gated at handler)', () => {
     const tap = TOOLS.find(t => t.name === 'tap');
-    assert.deepEqual(tap.inputSchema.required, ['ref']);
+    // After Phase 4b, tap accepts ref OR selector — the handler enforces
+    // that at least one is present (and produces a clear error otherwise).
+    // JSON Schema can't express XOR cleanly so the required-list is empty.
+    assert.strictEqual(tap.inputSchema.required, undefined);
+    assert.ok(tap.inputSchema.properties.ref);
+    assert.ok(tap.inputSchema.properties.selector);
   });
 
-  it('type requires ref and text', () => {
+  it('type requires text only — ref/selector enforced at handler', () => {
     const type = TOOLS.find(t => t.name === 'type');
-    assert.deepEqual(type.inputSchema.required, ['ref', 'text']);
+    assert.deepEqual(type.inputSchema.required, ['text']);
   });
 
-  it('scroll requires ref and direction', () => {
+  it('scroll requires direction only — ref/selector enforced at handler', () => {
     const scroll = TOOLS.find(t => t.name === 'scroll');
-    assert.deepEqual(scroll.inputSchema.required, ['ref', 'direction']);
+    assert.deepEqual(scroll.inputSchema.required, ['direction']);
   });
 
   it('swipe requires x1, y1, x2, y2', () => {
