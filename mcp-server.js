@@ -32,21 +32,30 @@ function saveSnapshot(text) {
   return file;
 }
 
-let _pages = { android: null, ios: null };
+// Per-{platform, serial} page cache. Key shape: `<platform>:<serial|*>`.
+// The wildcard slot ('*') is used when the caller didn't pin a serial and
+// we let connect() auto-discover — preserving the original single-device
+// behaviour for backward compatibility.
+let _pages = {};
 let _iosCertWarning = null;
 
-async function getPage(platform = 'android') {
-  if (!_pages[platform]) {
+function pageKey(platform, serial) {
+  return `${platform}:${serial || '*'}`;
+}
+
+async function getPage(platform = 'android', serial = null) {
+  const key = pageKey(platform, serial);
+  if (!_pages[key]) {
     if (platform === 'ios') {
       _iosCertWarning = checkIosCert();
       const mod = await import('./src/ios.js');
-      _pages[platform] = await mod.connect();
+      _pages[key] = await mod.connect(serial ? { host: serial } : {});
     } else {
       const mod = await import('./src/index.js');
-      _pages[platform] = await mod.connect();
+      _pages[key] = await mod.connect(serial ? { device: serial } : {});
     }
   }
-  return _pages[platform];
+  return _pages[key];
 }
 
 const PLATFORM_PROP = {
@@ -54,6 +63,10 @@ const PLATFORM_PROP = {
     type: 'string',
     enum: ['android', 'ios', 'auto'],
     description: 'Target platform. "auto" probes ADB then usbmuxd and caches the choice. Default: android.',
+  },
+  serial: {
+    type: 'string',
+    description: 'Optional device identifier to address a specific device when multiple are connected. ADB serial (Android) or host (iOS). Default: auto-pick first device.',
   },
 };
 
@@ -224,6 +237,56 @@ const TOOLS = [
     },
   }),
   withPlatformTag({
+    name: 'grant_permission',
+    description: 'Grant a runtime permission to an Android app. e.g. android.permission.CAMERA.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pkg: { type: 'string', description: 'App package name' },
+        perm: { type: 'string', description: 'Permission name (e.g. android.permission.CAMERA)' },
+        ...PLATFORM_PROP,
+      },
+      required: ['pkg', 'perm'],
+    },
+  }, ['android']),
+  withPlatformTag({
+    name: 'revoke_permission',
+    description: 'Revoke a runtime permission from an Android app.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pkg: { type: 'string', description: 'App package name' },
+        perm: { type: 'string', description: 'Permission name' },
+        ...PLATFORM_PROP,
+      },
+      required: ['pkg', 'perm'],
+    },
+  }, ['android']),
+  withPlatformTag({
+    name: 'clear_app_data',
+    description: 'Wipe an Android app\'s /data/data/<pkg> — equivalent to "Storage > Clear data" in Settings. Forces a fresh first-run.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pkg: { type: 'string', description: 'App package name' },
+        ...PLATFORM_PROP,
+      },
+      required: ['pkg'],
+    },
+  }, ['android']),
+  withPlatformTag({
+    name: 'list_permissions',
+    description: 'List the runtime permissions currently granted to an Android app. Returns a JSON array.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        pkg: { type: 'string', description: 'App package name' },
+        ...PLATFORM_PROP,
+      },
+      required: ['pkg'],
+    },
+  }, ['android']),
+  withPlatformTag({
     name: 'wait_stable',
     description: 'Block until two consecutive snapshots taken `stableMs` apart are identical. Use before acting on UI that may still be animating. Returns the stabilised snapshot text.',
     inputSchema: {
@@ -304,6 +367,10 @@ export function _resetAutoPlatformCache() { _autoPlatformCache = null; }
 
 async function handleToolCall(name, args) {
   const platform = await resolvePlatformAsync(args);
+  const serial = args?.serial || null;
+  // Tighten getPage() to thread the serial through. Every case below that
+  // calls getPage(platform) automatically picks up the right device.
+  const _getPage = (p = platform) => getPage(p, serial);
 
   // Refuse tool calls that target a platform the tool doesn't support.
   // Today every tool supports both; this gate exists so Phase 3.1's iOS-only
@@ -318,7 +385,7 @@ async function handleToolCall(name, args) {
 
   switch (name) {
     case 'snapshot': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       const snapOpts = {};
       if (args.maxDepth != null) snapOpts.maxDepth = args.maxDepth;
       if (args.maxNodes != null) snapOpts.maxNodes = args.maxNodes;
@@ -338,43 +405,62 @@ async function handleToolCall(name, args) {
     case 'tap': {
       const target = args.ref ?? args.selector;
       if (target == null) throw new InvalidArgument('tap requires `ref` or `selector`');
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.tap(target);
       return 'ok';
     }
     case 'type': {
       const target = args.ref ?? args.selector;
       if (target == null) throw new InvalidArgument('type requires `ref` or `selector`');
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.type(target, args.text, { clear: args.clear });
       return 'ok';
     }
     case 'press': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.press(args.key);
       return 'ok';
     }
     case 'scroll': {
       const target = args.ref ?? args.selector;
       if (target == null) throw new InvalidArgument('scroll requires `ref` or `selector`');
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.scroll(target, args.direction);
       return 'ok';
     }
     case 'swipe': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.swipe(args.x1, args.y1, args.x2, args.y2, args.duration);
       return 'ok';
     }
     case 'long_press': {
       const target = args.ref ?? args.selector;
       if (target == null) throw new InvalidArgument('long_press requires `ref` or `selector`');
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.longPress(target);
       return 'ok';
     }
+    case 'grant_permission': {
+      const page = await _getPage();
+      await page.grantPermission(args.pkg, args.perm);
+      return 'ok';
+    }
+    case 'revoke_permission': {
+      const page = await _getPage();
+      await page.revokePermission(args.pkg, args.perm);
+      return 'ok';
+    }
+    case 'clear_app_data': {
+      const page = await _getPage();
+      await page.clearAppData(args.pkg);
+      return 'ok';
+    }
+    case 'list_permissions': {
+      const page = await _getPage();
+      return page.listPermissions(args.pkg);
+    }
     case 'wait_stable': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       const snap = await page.waitForStable({
         pollMs: args.pollMs,
         stableMs: args.stableMs,
@@ -388,30 +474,30 @@ async function handleToolCall(name, args) {
       return snap;
     }
     case 'launch': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.launch(args.pkg);
       return 'ok';
     }
     case 'activate': {
       // Gate above already rejects activate on android, but keep the
       // call site simple — getPage(platform) is whatever resolved.
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.activate(args.bundleId);
       return 'ok';
     }
     case 'screenshot': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       const buf = await page.screenshot();
       const b64 = buf.toString('base64');
       return { _image: b64 };
     }
     case 'back': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       await page.back();
       return 'ok';
     }
     case 'find_by_text': {
-      const page = await getPage(platform);
+      const page = await _getPage();
       const ref = page.findByText(args.text);
       // Return a structured payload so the agent doesn't have to disambiguate
       // a "not found" sentinel from a label that happens to be the string
@@ -460,9 +546,11 @@ async function handleMessage(msg) {
         // Auto-reconnect: if WDA/device connection died, clear cache and retry once
         const isConnErr = isConnectionError(err);
         const platform = resolvePlatform(args);
-        if (isConnErr && _pages[platform]) {
-          try { _pages[platform].close(); } catch { /* ignore */ }
-          _pages[platform] = null;
+        const serial = args?.serial || null;
+        const key = pageKey(platform, serial);
+        if (isConnErr && _pages[key]) {
+          try { _pages[key].close(); } catch { /* ignore */ }
+          _pages[key] = null;
           result = await handleToolCall(name, args || {});
         } else {
           throw err;
@@ -486,7 +574,8 @@ async function handleMessage(msg) {
         try {
           const { restartWda } = await import('./src/setup.js');
           await restartWda((m) => process.stderr.write(`[baremobile] ${m}\n`));
-          _pages[platform] = null;
+          const serial = args?.serial || null;
+          _pages[pageKey(platform, serial)] = null;
           const result = await handleToolCall(name, args || {});
           if (result && result._image) {
             return jsonrpcResponse(id, {

@@ -36,9 +36,9 @@ describe('MCP tools/list', () => {
   it('has expected tool names', () => {
     const names = TOOLS.map(t => t.name).sort();
     assert.deepEqual(names, [
-      'activate', 'back', 'find_by_text', 'launch', 'long_press', 'press',
-      'screenshot', 'scroll', 'snapshot', 'swipe', 'tap', 'type',
-      'wait_stable',
+      'activate', 'back', 'clear_app_data', 'find_by_text', 'grant_permission',
+      'launch', 'list_permissions', 'long_press', 'press', 'revoke_permission',
+      'screenshot', 'scroll', 'snapshot', 'swipe', 'tap', 'type', 'wait_stable',
     ]);
   });
 

@@ -5,6 +5,7 @@ import {
   shellQuote, validatePackage, validateIntentAction, validateExtraKey,
 } from './adb.js';
 import { DeviceError, WaitTimeout, SelectorNotFound, InvalidArgument } from './errors.js';
+import * as apps from './apps.js';
 import { isTermux, resolveTermuxDevice } from './termux.js';
 import { parseXml } from './xml.js';
 import { prune } from './prune.js';
@@ -228,6 +229,12 @@ export async function connect(opts = {}) {
       }
       return null;
     },
+
+    // App helpers — Android only (pm grant/revoke/clear under the hood).
+    async grantPermission(pkg, perm) { return apps.grantPermission(pkg, perm, adbOpts); },
+    async revokePermission(pkg, perm) { return apps.revokePermission(pkg, perm, adbOpts); },
+    async clearAppData(pkg) { return apps.clearAppData(pkg, adbOpts); },
+    async listPermissions(pkg) { return apps.listPermissions(pkg, adbOpts); },
 
     close() {
       // ADB is stateless — no per-page teardown needed. The daemon owns its

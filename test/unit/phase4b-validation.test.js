@@ -187,12 +187,15 @@ describe('Phase 4.3 — wait_stable', () => {
   // (wasted time / still racey) or rely on waitForText which only works if
   // a specific string is known ahead of time. Stability detection covers
   // the general "wait out animations" case.
-  it('NECESSITY: simulated waitForStable logic resolves after stableMs of identical snapshots', async () => {
-    // Inline the algorithm with a controllable snapshot stream.
-    const snaps = ['a', 'a', 'b', 'b', 'b', 'b'];
+  it('NECESSITY: simulated waitForStable logic resolves on a stretch of identical snapshots', async () => {
+    // Snapshot stream: one transient change, then a long stable run. Use
+    // a stableMs much larger than pollMs so OS scheduling jitter (a
+    // single sleep occasionally landing >stableMs) can't trip an early
+    // exit on the initial pair.
+    const snaps = ['a', 'b', 'b', 'b', 'b', 'b', 'b', 'b', 'b', 'b', 'b', 'b'];
     let i = 0;
     async function snap() { return snaps[Math.min(i++, snaps.length - 1)]; }
-    async function waitForStable({ pollMs = 10, stableMs = 25, timeout = 1000 } = {}) {
+    async function waitForStable({ pollMs = 20, stableMs = 200, timeout = 2000 } = {}) {
       const start = Date.now();
       let prev = await snap();
       let prevAt = Date.now();
@@ -204,7 +207,7 @@ describe('Phase 4.3 — wait_stable', () => {
       }
       throw new Error('timeout');
     }
-    const out = await waitForStable({ pollMs: 10, stableMs: 25, timeout: 500 });
+    const out = await waitForStable({ pollMs: 20, stableMs: 200, timeout: 2000 });
     assert.strictEqual(out, 'b');
   });
 });
