@@ -9,7 +9,7 @@
 
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
-import { writeFileSync, mkdirSync, existsSync, readFileSync, unlinkSync } from 'node:fs';
+import { writeFileSync, mkdirSync, existsSync, readFileSync, unlinkSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const SESSION_FILE = 'session.json';
@@ -24,6 +24,21 @@ const SESSION_FILE = 'session.json';
  * @param {unknown} v
  * @returns {number|undefined}
  */
+/**
+ * Atomically write a file by writing to a sibling `<path>.tmp` and then
+ * renaming over the target. `rename(2)` is atomic on the same filesystem,
+ * so concurrent readers (the parent process polling session.json) either
+ * see the previous file or the fully-written new one — never a half.
+ *
+ * @param {string} path
+ * @param {string|Buffer} contents
+ */
+export function atomicWriteFileSync(path, contents) {
+  const tmp = `${path}.tmp`;
+  writeFileSync(tmp, contents);
+  renameSync(tmp, path);
+}
+
 /**
  * Push a line into a bounded ring buffer. When `arr.length` would exceed
  * `max`, drop the oldest `trim` entries in one `splice()` so we amortise
@@ -203,6 +218,13 @@ export async function runDaemon(opts, outputDir) {
       return { ok: true };
     },
 
+    activate: platform === 'android'
+      ? () => ({ ok: false, error: 'activate is iOS-only (Android apps relaunch via launch)' })
+      : async ({ bundleId }) => {
+        await page.activate(bundleId);
+        return { ok: true };
+      },
+
     async back() {
       await page.back();
       return { ok: true };
@@ -339,9 +361,10 @@ export async function runDaemon(opts, outputDir) {
 
   const port = server.address().port;
 
-  // Write session.json so parent/clients can find us
+  // Write session.json so parent/clients can find us. Use atomic write so
+  // the parent's poll loop never reads a partially-written record.
   const sessionPath = join(absDir, SESSION_FILE);
-  writeFileSync(sessionPath, JSON.stringify({
+  atomicWriteFileSync(sessionPath, JSON.stringify({
     port,
     pid: process.pid,
     platform,

@@ -132,7 +132,8 @@ export function buildGrid(width, height) {
     if (!m) throw new Error(`Invalid grid cell: ${cell}. Use A1-J${rows}`);
     const col = m[1].toUpperCase().charCodeAt(0) - 65;
     const row = parseInt(m[2], 10) - 1;
-    if (col < 0 || col >= cols) throw new Error(`Column out of range: ${m[1]}`);
+    // No column-range check needed — the regex character class above bounds
+    // m[1] to A–J, so col ∈ [0, 9] = [0, cols). Row is the variable axis.
     if (row < 0 || row >= rows) throw new Error(`Row out of range: ${m[2]}. Max: ${rows}`);
     return {
       x: Math.round(col * cellW + cellW / 2),

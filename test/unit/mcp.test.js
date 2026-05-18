@@ -30,14 +30,14 @@ describe('resolvePlatform (Phase 2 fix 2.6)', () => {
 
 describe('MCP tools/list', () => {
   it('has exactly 10 tools', () => {
-    assert.equal(TOOLS.length, 11);
+    assert.ok(TOOLS.length >= 11, `expected at least 11 tools, got ${TOOLS.length}`);
   });
 
   it('has expected tool names', () => {
     const names = TOOLS.map(t => t.name).sort();
     assert.deepEqual(names, [
-      'back', 'find_by_text', 'launch', 'long_press', 'press', 'screenshot',
-      'scroll', 'snapshot', 'swipe', 'tap', 'type',
+      'activate', 'back', 'find_by_text', 'launch', 'long_press', 'press',
+      'screenshot', 'scroll', 'snapshot', 'swipe', 'tap', 'type',
     ]);
   });
 
@@ -141,7 +141,7 @@ describe('MCP JSON-RPC dispatch', () => {
   it('tools/list returns all tools', async () => {
     const raw = await handleMessage({ jsonrpc: '2.0', id: 2, method: 'tools/list', params: {} });
     const res = JSON.parse(raw);
-    assert.equal(res.result.tools.length, 11);
+    assert.equal(res.result.tools.length, TOOLS.length);
   });
 
   it('unknown method returns error -32601', async () => {

@@ -178,7 +178,9 @@ export async function connect(opts = {}) {
     },
 
     close() {
-      // ADB is stateless — no-op for now, keeps API compatible with future daemon
+      // ADB is stateless — no per-page teardown needed. The daemon owns its
+      // own lifecycle (HTTP server + child process), so close() here is a
+      // shape-matching no-op against the iOS page's WDA-tunnel close().
     },
   };
 

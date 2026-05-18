@@ -3,7 +3,9 @@
  * mcp-server.js — MCP server for baremobile.
  *
  * Raw JSON-RPC 2.0 over stdio. No SDK dependency.
- * 11 tools: snapshot, tap, type, press, scroll, swipe, long_press, launch, screenshot, back, find_by_text.
+ * Tool definitions live in the TOOLS array below — count drifts with the
+ * code so don't repeat it in prose. Each tool's `_platforms` array gates
+ * cross-platform calls; descriptions lead with `[android|ios]` etc.
  *
  * Dual-platform: Android (default) and iOS. Each platform gets its own
  * lazy-created page. Pass platform: "ios" to target iPhone.
@@ -166,6 +168,18 @@ const TOOLS = [
     },
   }),
   withPlatformTag({
+    name: 'activate',
+    description: 'Bring an already-running app to the foreground without relaunching it. Use this on iOS when launch would tear down app state. Returns ok.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        bundleId: { type: 'string', description: 'iOS bundle identifier (e.g. "com.apple.Preferences")' },
+        ...PLATFORM_PROP,
+      },
+      required: ['bundleId'],
+    },
+  }, ['ios']),
+  withPlatformTag({
     name: 'screenshot',
     description: 'Take a screenshot. Returns base64-encoded PNG image.',
     inputSchema: {
@@ -274,6 +288,13 @@ async function handleToolCall(name, args) {
     case 'launch': {
       const page = await getPage(platform);
       await page.launch(args.pkg);
+      return 'ok';
+    }
+    case 'activate': {
+      // Gate above already rejects activate on android, but keep the
+      // call site simple — getPage(platform) is whatever resolved.
+      const page = await getPage(platform);
+      await page.activate(args.bundleId);
       return 'ok';
     }
     case 'screenshot': {

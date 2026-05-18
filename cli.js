@@ -82,6 +82,8 @@ if (args.includes('--daemon-internal')) {
   await cmdProxy('long-press', { ref: args[1] });
 } else if (cmd === 'launch' && args[1]) {
   await cmdProxy('launch', { pkg: args[1] });
+} else if (cmd === 'activate' && args[1]) {
+  await cmdProxy('activate', { bundleId: args[1] });
 } else if (cmd === 'back') {
   await cmdProxy('back');
 } else if (cmd === 'home') {
@@ -271,6 +273,7 @@ Interaction:
   baremobile swipe <x1> <y1> <x2> <y2> [--duration=N]
   baremobile long-press <ref>        Long-press element
   baremobile launch <pkg>            Launch app by identifier
+  baremobile activate <bundleId>     Bring app to foreground without relaunch (iOS only)
   baremobile intent <action> [--extra-string key=val ...]  (Android only)
   baremobile back                    Navigate back
   baremobile home                    Go to home screen
