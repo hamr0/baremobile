@@ -15,7 +15,8 @@ import { prune } from './prune.js';
 import { formatTree } from './aria.js';
 import { listDevices, forward } from './usbmux.js';
 import {
-  ElementNotFound, SelectorNotFound, InvalidArgument, WdaTimeout, WdaUnavailable, WaitTimeout,
+  ElementNotFound, SelectorNotFound, InvalidArgument, WdaTimeout, WdaUnavailable,
+  WaitTimeout, DeviceError,
 } from './errors.js';
 import { traceCall } from './debug.js';
 
@@ -553,13 +554,13 @@ export async function connect(opts = {}) {
 
       // Passcode required
       const code = pin || passcode;
-      if (!code) throw new Error('Device requires passcode but none provided');
+      if (!code) throw new InvalidArgument('Device requires passcode but none provided');
       await wdaPost(`/session/${sid}/wda/keys`, { value: [...code] });
       await new Promise(r => setTimeout(r, 1000));
 
       // Verify
       const after = await wdaGet('/wda/locked');
-      if (after.value) throw new Error('Unlock failed — wrong passcode?');
+      if (after.value) throw new DeviceError('Unlock failed — wrong passcode?');
     },
 
     async lock() {
@@ -569,13 +570,13 @@ export async function connect(opts = {}) {
     async launch(bundleId) {
       await page.unlock(passcode);
       const r = await wdaPost(`/session/${sid}/wda/apps/launch`, { bundleId });
-      if (r?.value?.error) throw new Error(`launch(${bundleId}): ${r.value.message}`);
+      if (r?.value?.error) throw new DeviceError(`launch(${bundleId}): ${r.value.message}`);
       _refMap = new Map();
     },
 
     async activate(bundleId) {
       const r = await wdaPost(`/session/${sid}/wda/apps/activate`, { bundleId });
-      if (r?.value?.error) throw new Error(`activate(${bundleId}): ${r.value.message}`);
+      if (r?.value?.error) throw new DeviceError(`activate(${bundleId}): ${r.value.message}`);
     },
 
     async screenshot() {

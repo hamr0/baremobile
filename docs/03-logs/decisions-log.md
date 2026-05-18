@@ -1,5 +1,37 @@
 # Decisions Log
 
+## v0.8.0 — Code-review fix plan
+
+### Typed error hierarchy with `.code` + cause preservation
+**When:** Phase 4.1
+**Decision:** Introduce `src/errors.js` with a `BaremobileError` base and concrete subclasses (`ElementNotFound`, `SelectorNotFound`, `WdaTimeout`, `WdaUnavailable`, `WaitTimeout`, `InvalidArgument`, `DeviceError`). Each sets `.name` and `.code` matching the class name and preserves the original error via `.cause`.
+**Why:** MCP retry tiers and library users were substring-matching `err.message` against fragile strings like `'fetch failed'` / `'UND_ERR'` / `'ECONNRESET'`. Typed errors give callers a single discriminator (`err.code` or `instanceof`) and let `isConnectionError(err)` be the only place that needs updating when the underlying runtime error vocabulary shifts.
+
+### Selectors layered ON TOP of refs, not instead of
+**When:** Phase 4.2
+**Decision:** `page.tap`/`type`/`scroll`/`longPress` accept `refOrSelector`. A string/number is a ref (existing behaviour, no snapshot). An object `{text|contentDesc}` triggers a fresh snapshot, substring-matches via `findByText`, then routes to the ref path.
+**Why:** Refs remain the canonical, snapshot-bound identifier so existing code keeps working. Selectors are pure agent-convenience sugar — they cost a snapshot per call, which is the price of "act on what you describe, not what you indexed."
+
+### `platform: 'auto'` is async + cached
+**When:** Phase 4.4
+**Decision:** `resolvePlatformAsync` probes ADB then usbmuxd on the first call with `platform: 'auto'`, caches the result for the process lifetime. A synchronous `resolvePlatform` honours the cache for retry tiers that can't await without a wider refactor.
+**Why:** Probe cost is bounded (one-time, two cheap subprocess/socket calls). Refactoring the retry tiers to async would require touching every error handler — out of scope for v0.8.0. Cache lifetime is "until process exit" because devices rarely hot-swap mid-session.
+
+### Atomic file writes via rename(2)
+**When:** Phase 3.6
+**Decision:** `atomicWriteFileSync(path, contents)` writes to `<path>.tmp` then `renameSync()`s over the target.
+**Why:** POSIX `rename(2)` is atomic on the same filesystem. Concurrent readers (the parent daemon poll loop) see either the previous file or the fully-written new one — never partial bytes. Cheaper and simpler than file locking.
+
+### MCP `_platforms` annotation as the gate, not just metadata
+**When:** Phase 2.7 + 4.6
+**Decision:** Every MCP tool carries a `_platforms: ['android'|'ios'][]` array. `handleToolCall` refuses cross-platform calls before reaching `getPage()`, returning a clear `"Tool X is not supported on platform Y"` error.
+**Why:** Without this, an iOS call to an Android-only tool produced a confusing "method not on page" error from deep inside the page object. The gate also makes platform support discoverable from the tool description (`[android-only]` / `[ios-only]` prefix).
+
+### Necessity proofs in the test suite
+**When:** Phase 1+2, mid-flight standing rule
+**Decision:** For each fix, write an inline test that reproduces the pre-fix buggy behaviour and demonstrates the fix changes the outcome. If a fix turns out unnecessary on this host (e.g. Phase 1.3 daemon close race didn't manifest on Linux Node 22), document that and decide explicitly whether to retain on contract grounds.
+**Why:** Pure regression tests prove a fix works; they don't prove it was *needed*. Necessity tests catch dead complexity early — three Phase 1+2 fixes were re-examined and one was downgraded to "defensive" status with a documented justification.
+
 ## ADB direct, not Appium
 **When:** Phase 1 design
 **Decision:** Use `child_process.execFile('adb', ...)` directly, no Appium.

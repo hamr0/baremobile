@@ -1,5 +1,53 @@
 # Changelog
 
+## 0.8.0
+
+Code-review fix plan — security, robustness, typed errors, and agent ergonomics. See `docs/02-features/code-review-fixes.md` for the phased plan and `docs/03-logs/{bug-log,decisions-log,implementation-log,validation-log}.md` for full provenance.
+
+### Security (Critical — Phase 1)
+
+- **Shell injection in `page.launch(pkg)`** [1.1]: `pkg` was interpolated directly into `am start … ${pkg}`; an attacker-controlled package name like `com.x; touch /tmp/pwned; #` re-parsed on the device and executed. New `validatePackage()` rejects anything outside `/^[A-Za-z][A-Za-z0-9_.]*$/`.
+- **Shell injection in `page.intent(action, extras)`** [1.1]: string extras were wrapped in literal single quotes, so a value containing `'` broke the quoting. New `shellQuote()` uses the `'\''` idiom (POSIX-safe); `validateIntentAction()` and `validateExtraKey()` gate the dotted-identifier surface.
+- **Shell injection in Android app helpers (new)** [4.6]: `pm grant`, `pm revoke`, `pm clear`, `dumpsys package` all go through `validatePackage()` + new `validatePermission()` before any string interpolation.
+
+### Fixed (Important — Phase 1 + 2 + 3)
+
+- **iOS `connect()` leaked WDA session + usbmuxd tunnel** [1.2] when `/session` POST or screen-size probe failed. Bring-up is now wrapped in try/cleanup-and-rethrow.
+- **Daemon `close` response was raced by `process.exit(0)`** [1.3]: clients saw `ECONNRESET` instead of `{ok: true}`. The exit is now chained through `res.end(..., () => server.close(() => process.exit(0)))`.
+- **WDA `fetch()` had no timeout** [1.4]: a hung WDA parked the entire MCP call forever. Each attempt now carries `AbortSignal.timeout(BAREMOBILE_WDA_TIMEOUT_MS ?? 10_000)`. The third failure surfaces as `WdaTimeout` (typed); the MCP retry tier recognises it.
+- **`wait-text` / `wait-state` silently coerced malformed timeouts to NaN/0** [2.1]: `timeout: "abc"` meant `Date.now() - start < NaN` was always false, returning instantly. New `parseTimeout()` rejects non-decimal strings, negatives, NaN.
+- **iOS `back()` swiped at a stale Y on rotation** [2.2]: cached `_screenH` was used after orientation changes. The fallback path now re-queries `/window/size` on demand.
+- **Logcat grew unbounded** [2.3] on long-lived daemons. New `pushBounded()` ring buffer caps at 50k lines with 1k-line amortised trimming. Capture errors now surface to stderr.
+- **`wifi-device.json` would propagate a poisoned IP** [2.4]: new `isValidIpv4()` gates loading; corrupt records are deleted.
+- **MCP `find_by_text` returned the literal string `"null"`** [2.5] — ambiguous with a label that reads "null". Now returns structured JSON `{found: true, ref: "N"} | {found: false}`.
+- **MCP retry tiers used divergent literal `'android'` defaults** [2.6]: drift between call-site and retry could clear the wrong cache slot. New `resolvePlatform()` / `resolvePlatformAsync()` are a single source of truth.
+- **Daemon `session.json` write was non-atomic** [3.6]: the parent poll loop could read a partial file. New `atomicWriteFileSync()` writes `<path>.tmp` then `rename(2)`s over the target.
+
+### Added (Phase 3 + Phase 4)
+
+- **iOS `activate(bundleId)` exposure** [3.1]: defined in `src/ios.js` since v0.7.0 but never reachable. Now available as `baremobile activate <bundleId>`, daemon `activate` command, and MCP `activate` tool (gated `_platforms: ['ios']`).
+- **Typed error hierarchy** [4.1]: `src/errors.js` exports `BaremobileError` base plus `ElementNotFound`, `SelectorNotFound`, `WdaTimeout`, `WdaUnavailable`, `WaitTimeout`, `InvalidArgument`, `DeviceError`. Each sets `.name` and `.code` and preserves `.cause`. `isConnectionError(err)` is the single discriminator used by both MCP retry tiers — replaces brittle `msg.includes('fetch failed')` chains.
+- **`platform: 'auto'`** [4.4]: `resolvePlatformAsync` probes ADB then usbmuxd, caches the result for the process lifetime.
+- **`DEBUG_BAREMOBILE=1`** [4.8]: `src/debug.js` exposes `traceCall(channel, label, fn)` — mirrors every ADB / WDA call to stderr with channel, label, outcome, latency. Cheap no-op when disabled.
+- **Selector-based actions** [4.2]: `page.tap`, `type`, `scroll`, `longPress` accept either a ref or a selector object `{text|contentDesc}`. MCP tools expose `selector` alongside `ref`; the handler enforces "at least one" with a clear `InvalidArgument` before any device round-trip.
+- **`page.waitForStable({pollMs, stableMs, timeout})`** [4.3]: the general "wait out animations" primitive. Exposed as MCP `wait_stable`.
+- **Bounded snapshot** [4.5]: `prune(root, {maxDepth, maxNodes})` and `page.snapshot({...})`. Returns a `truncated: bool` flag.
+- **Android app helpers** [4.6]: `grantPermission`, `revokePermission`, `clearAppData`, `listPermissions` on the page object. Four corresponding MCP tools (`[android-only]`).
+- **Multi-device** [4.7]: `_pages` keyed by `{platform, serial}`. Every MCP tool advertises an optional `serial` arg. Retry tiers clear the keyed slot only.
+- **MCP platform annotations** [2.7]: every tool description leads with `[android|ios]` / `[ios-only]` / `[android-only]` and carries a `_platforms` array. `handleToolCall` refuses cross-platform calls up front.
+
+### Changed
+
+- All hot-path generic `throw new Error(...)` in `src/index.js`, `src/ios.js`, `src/interact.js`, `src/apps.js` migrated to typed errors.
+- MCP `find_by_text` description updated to advertise the JSON shape.
+- MCP server header comment drops the hardcoded "11 tools" enumeration.
+- `page.close()` comment cleaned up.
+- Unreachable `col < 0 || col >= cols` branch in `buildGrid().resolve` deleted.
+
+### Testing
+
+301 unit tests, 0 failures (was 94 at start of v0.8.0). 9 new test files including stress + necessity proofs that each fix is justified.
+
 ## 0.7.11
 
 Bug fixes and robustness improvements.

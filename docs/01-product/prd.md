@@ -10,26 +10,30 @@ baremobile gives AI agents control of Android and iOS devices. Vanilla JS, zero 
 
 ```
 src/
-  adb.js           -- ADB transport: exec, device discovery, XML dump
+  adb.js           -- ADB transport: exec, device discovery, XML dump, shellQuote + validators
+  apps.js          -- Android app helpers: grantPermission, revokePermission, clearAppData, listPermissions (v0.8.0)
   aria.js          -- Format tree as YAML with [ref=N] markers
-  daemon.js        -- Background daemon for CLI session mode
-  index.js         -- Public API: connect(opts) -> page object (Android)
+  daemon.js        -- Background daemon for CLI session mode (atomic session.json, bounded logcat, parseTimeout)
+  debug.js         -- DEBUG_BAREMOBILE traceCall observability gate (v0.8.0)
+  errors.js        -- Typed errors: ElementNotFound, SelectorNotFound, WdaTimeout, WdaUnavailable, WaitTimeout, InvalidArgument, DeviceError + isConnectionError (v0.8.0)
+  index.js         -- Public API: connect(opts) -> page object (Android). Selector actions, waitForStable, bounded snapshot
   interact.js      -- tap, type, press, swipe, scroll, long-press (Android)
   ios-cert.js      -- WDA cert expiry tracking (7-day free Apple ID certs)
-  ios.js           -- iOS API: connect(opts) -> page object (WDA over HTTP)
-  prune.js         -- Pruning pipeline + ref assignment
+  ios.js           -- iOS API: connect(opts) -> page object (WDA over HTTP). Fetch timeout, selector actions, waitForStable
+  prune.js         -- Pruning pipeline + ref assignment + maxDepth/maxNodes
   session-client.js -- Client for daemon IPC (CLI <-> daemon)
   setup.js         -- Interactive setup wizard (Android: emulator/USB/WiFi/Termux + iOS)
   termux-api.js    -- Termux:API: SMS, calls, location, camera, clipboard (no ADB)
   termux.js        -- Termux detection + localhost ADB setup helper
   usbmux.js        -- Node.js usbmuxd client for iOS USB connection
+  wifi-persist.js  -- Saved WiFi device load/save with IPv4 validation
   xml.js           -- Zero-dep XML parser (pure, no I/O)
 
-mcp-server.js      -- MCP server: JSON-RPC 2.0 over stdio, 11 tools, dual-platform
+mcp-server.js      -- MCP server: JSON-RPC 2.0 over stdio, 17 tools, dual-platform + platform:'auto' + multi-device serial
 cli.js             -- CLI entry point: baremobile <command> [options]
 ```
 
-14 source files in `src/`, 2 top-level entry points, ~1,400 lines total.
+18 source files in `src/`, 2 top-level entry points, zero runtime dependencies.
 
 ---
 
@@ -58,16 +62,61 @@ iOS:      resolve ref -> bounds center -> W3C pointer action        (ios.js)
 ### Page object
 
 ```js
-const page = await connect();       // auto-detect device
-const snap = await page.snapshot();  // YAML with [ref=N] markers
-await page.tap(3);                   // tap element ref=3
-await page.type(5, 'hello');         // focus + type text
-await page.press('back');            // key event
-await page.scroll(1, 'down');        // swipe within element bounds
-await page.launch('com.android.settings');
+const page = await connect();                       // auto-detect device
+const snap = await page.snapshot();                 // YAML with [ref=N] markers
+const small = await page.snapshot({ maxNodes: 200 }); // bounded snapshot (v0.8.0)
+
+// Ref-based (existing):
+await page.tap(3);
+// Selector-based (v0.8.0):
+await page.tap({ text: 'Settings' });
+await page.type({ contentDesc: 'Email' }, 'me@example.com', { clear: true });
+await page.scroll({ text: 'List' }, 'down');
+
+await page.press('back');
+await page.launch('com.android.settings');                  // validatePackage gate
+
+// Wait helpers
+await page.waitForText('Welcome');
+await page.waitForState(5, 'enabled');
+await page.waitForStable({ pollMs: 250, stableMs: 500 });   // (v0.8.0)
+
+// Android app helpers (v0.8.0)
+await page.grantPermission('com.example', 'android.permission.CAMERA');
+await page.clearAppData('com.example');
+const perms = await page.listPermissions('com.example');
 ```
 
 Same API shape for both platforms. Import from `src/index.js` (Android) or `src/ios.js` (iOS).
+
+### Error handling (v0.8.0)
+
+All hot-path failures throw typed errors so callers can branch without parsing strings:
+
+```js
+import { ElementNotFound, SelectorNotFound, WdaTimeout, WaitTimeout,
+         InvalidArgument, DeviceError, isConnectionError } from 'baremobile/src/errors.js';
+
+try {
+  await page.tap({ text: 'Submit' });
+} catch (e) {
+  if (e instanceof SelectorNotFound) { /* re-snapshot, try again */ }
+  else if (isConnectionError(e))     { /* reconnect */ }
+  else throw e;
+}
+```
+
+### MCP — `platform: 'auto'` + multi-device (v0.8.0)
+
+Every MCP tool accepts an optional `serial`. Sessions are cached per `{platform, serial}` so a single MCP server can drive multiple devices concurrently.
+
+```jsonc
+// Pin to a specific device
+{ "name": "tap", "arguments": { "selector": { "text": "OK" }, "serial": "emulator-5554" } }
+
+// Let baremobile probe whichever stack is connected
+{ "name": "snapshot", "arguments": { "platform": "auto" } }
+```
 
 ---
 

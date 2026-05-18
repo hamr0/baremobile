@@ -94,7 +94,7 @@ export async function swipe(x1, y1, x2, y2, duration = 300, opts = {}) {
 export async function scroll(ref, direction, refMap, opts = {}) {
   const node = resolveRef(ref, refMap);
   const b = node.bounds;
-  if (!b) throw new Error('Scrollable node has no bounds');
+  if (!b) throw new InvalidArgument('Scrollable node has no bounds');
 
   const cx = Math.round((b.x1 + b.x2) / 2);
   const cy = Math.round((b.y1 + b.y2) / 2);
@@ -111,7 +111,7 @@ export async function scroll(ref, direction, refMap, opts = {}) {
   };
 
   const v = vectors[direction];
-  if (!v) throw new Error(`Unknown scroll direction: ${direction}. Use up/down/left/right`);
+  if (!v) throw new InvalidArgument(`Unknown scroll direction: ${direction}. Use up/down/left/right`);
   await swipe(...v, 300, opts);
 }
 
@@ -130,12 +130,12 @@ export function buildGrid(width, height) {
 
   function resolve(cell) {
     const m = cell.match(/^([A-J])(\d+)$/i);
-    if (!m) throw new Error(`Invalid grid cell: ${cell}. Use A1-J${rows}`);
+    if (!m) throw new InvalidArgument(`Invalid grid cell: ${cell}. Use A1-J${rows}`);
     const col = m[1].toUpperCase().charCodeAt(0) - 65;
     const row = parseInt(m[2], 10) - 1;
     // No column-range check needed — the regex character class above bounds
     // m[1] to A–J, so col ∈ [0, 9] = [0, cols). Row is the variable axis.
-    if (row < 0 || row >= rows) throw new Error(`Row out of range: ${m[2]}. Max: ${rows}`);
+    if (row < 0 || row >= rows) throw new InvalidArgument(`Row out of range: ${m[2]}. Max: ${rows}`);
     return {
       x: Math.round(col * cellW + cellW / 2),
       y: Math.round(row * cellH + cellH / 2),

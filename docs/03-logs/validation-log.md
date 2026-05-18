@@ -1,5 +1,54 @@
 # Validation Log
 
+## v0.8.0 — Code-review fix plan (May 2026)
+
+### Test suite delta
+
+| Snapshot | Tests | Failures |
+|---|---|---|
+| Start of v0.8.0 work | 94 | 0 |
+| After Phase 1+2 | 218 | 0 |
+| After necessity proofs | 240 | 0 |
+| After Phase 3 | 264 | 0 |
+| After Phase 4a | 280 | 0 |
+| After Phase 4b | 291 | 0 |
+| After Phase 4c (final) | 301 | 0 |
+
+### End-to-end deliverable verification (no device required)
+
+| Check | Method | Result |
+|---|---|---|
+| Unit suite | `node --test test/unit/*.test.js` | 301/301 PASS |
+| Integration suite | `node --test test/integration/*.test.js` | skip cleanly when no device |
+| CLI usage | `node cli.js` | PASS — `activate` listed |
+| MCP boot | stdio `initialize` + `tools/list` | PASS — 17 tools, all carry `_platforms` arrays |
+| Public API imports | `import('./src/{index,ios,errors,apps,debug,daemon}.js')` | PASS — every module loads, exports match spec |
+| MCP gate refuses cross-platform call | `tools/call activate platform=android` | PASS — `Tool "activate" is not supported on platform "android". Supported: ios.` |
+| `DEBUG_BAREMOBILE=1` traceCall output | child-process roundtrip | PASS — `[baremobile] test demo  ok 8ms` / `…  err Error 0ms` |
+| MCP `tap` w/o ref|selector gates with InvalidArgument | live MCP roundtrip | PASS — `Error: tap requires \`ref\` or \`selector\`` |
+| Hot-path generic `throw new Error` count | grep `src/{index,ios,interact,apps}.js` | 0 / 0 / 0 / 0 |
+
+### Necessity-proof verdicts (Phase 1+2)
+
+| Fix | Pre-fix bug reproduced? | Verdict |
+|---|---|---|
+| 1.1 shell injection in `intent()` | ✅ touch sentinel ran via `/bin/sh` | Necessary |
+| 1.1 package injection in `launch()` | ✅ same vector via `${pkg}` | Necessary |
+| 1.2 iOS connect WDA leak | indirect (mock HTTP server) | Necessary (resource hygiene) |
+| 1.3 daemon close race | ❌ did not reproduce on Linux Node 22 | Defensive (Node docs contract) |
+| 1.4 WDA fetch timeout | ✅ bare fetch still pending after 1s | Necessary |
+| 2.1 parseTimeout NaN | ✅ `Date.now() - start < NaN` always false | Necessary |
+| 2.2 iOS back rotation | not reproducible without rotation | Defensive |
+| 2.3 logcat unbounded | ✅ 100k naive pushes → 100k entries | Necessary |
+| 2.4 wifi-persist IP propagation | ✅ legacy loader returns poisoned ip | Necessary |
+| 2.5 find_by_text "null" ambiguity | ✅ string sentinel collides with label | Necessary |
+| 2.6 resolvePlatform drift | conceptual (three-literal divergence proof) | Maintainability |
+
+### Stress harness summary
+
+- `phase-stress.test.js`: 21 tests — POSIX shell roundtrip on every printable ASCII + 500 random byte strings + unicode; 20 concurrent iOS `/session`-failing connects; 100 daemon-close cycles; 10 concurrent hung-WDA timeouts; fuzz on parseTimeout / pushBounded / isValidIpv4 / resolvePlatform.
+- `phase4b-validation.test.js`: 50-trial randomised maxDepth/maxNodes invariant check on synthetic trees of depth 3-10, width 5-25.
+
 ## Core ADB — API 35 emulator (February 2025)
 
 | Flow | Result |
