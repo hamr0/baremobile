@@ -1,8 +1,8 @@
 {
   "mcpServers": {
     "baremobile": {
-      "command": "node",
-      "args": ["mcp-server.js"]
+      "command": "npx",
+      "args": ["-y", "baremobile@latest", "mcp"]
     }
   }
 }
