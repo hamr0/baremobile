@@ -63,3 +63,5 @@ Keep this managed block so 'aur init --config' can refresh the instructions.
 <!-- MEMORY:START -->
 @MEMORY.md
 <!-- MEMORY:END -->
+
+For full development and testing standards, see `/home/hamr/Documents/PycharmProjects/gitdone/.claude/memory/AGENT_RULES.md`.
