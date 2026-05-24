@@ -93,6 +93,7 @@ describe('resolveTermuxDevice', () => {
       await resolveTermuxDevice();
       // If it succeeds (unlikely on dev machine), that's fine
     } catch (e) {
+      if (e.code === 'ENOENT') return; // adb not installed (e.g. CI) — skip, like the findLocalDevices tests
       assert.ok(e.message.includes('No localhost ADB device found'), 'Should mention no device');
       assert.ok(e.message.includes('Wireless Debugging'), 'Should mention wireless debugging');
       assert.ok(e.message.includes('adb pair'), 'Should include pair instructions');
