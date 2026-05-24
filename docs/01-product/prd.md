@@ -245,7 +245,7 @@ All interactions go through `adb shell input`. Every function takes `opts` last 
 | `buildGrid(width, height)` | Build labeled grid: 10 cols (A-J), auto rows. Returns `{cols, rows, cellW, cellH, resolve, text}` |
 | `type(ref, text, refMap, opts)` | Focus tap + word-by-word input with KEYCODE_SPACE between words |
 | `press(key, opts)` | Key event by name or keycode number |
-| `swipe(x1, y1, x2, y2, duration, opts)` | Raw `input swipe` |
+| `swipe(x1, y1, x2, y2, duration, opts)` | Raw `input swipe`. All five values coerced via `Math.round(Number())`; non-finite input throws `InvalidArgument` so nothing but digits reaches the device shell (v0.8.1) |
 | `scroll(ref, direction, refMap, opts)` | Swipe within element bounds (up/down/left/right) |
 | `longPress(ref, refMap, opts)` | Zero-distance swipe with 1000ms duration |
 
@@ -327,8 +327,8 @@ page.close();
 ```
 
 Auto-discovery in `connect()`:
-1. Cached WiFi -- reads `/tmp/baremobile-ios-wifi`, tries direct HTTP
-2. USB discovery -- Node.js proxy via usbmuxd, gets WiFi IP from `/status`, caches it
+1. Cached WiFi -- reads `~/.config/baremobile/ios-wifi` (per-user, not shared `/tmp`), validates with `isValidIpv4()`, then tries direct HTTP (v0.8.1)
+2. USB discovery -- Node.js proxy via usbmuxd, gets WiFi IP from `/status`, validates it, caches it
 3. Fallback -- `localhost:8100`
 
 ### `src/termux.js` -- Termux ADB Helper
@@ -372,6 +372,7 @@ Node.js TCP proxy via `/var/run/usbmuxd`. Replaces pymobiledevice3 port forwarde
 
 - Binary protocol: version 0 for Connect (type=2), version 1 plist (type=8) for ListDevices
 - Handles 10+ concurrent requests, zero crashes
+- `forward()` binds the local TCP proxy to `127.0.0.1` only — the auth-less WDA endpoint must never be exposed beyond loopback (v0.8.1)
 
 ### `src/ios-cert.js` -- Cert Expiry Tracking
 
@@ -382,7 +383,7 @@ Tracks WDA signing timestamp (written by `baremobile ios resign`). Warns when ce
 Interactive setup for both platforms. `baremobile setup` detects what is already configured and guides through remaining steps.
 
 - Android: sub-menu with 4 modes — Emulator (SDK install + AVD creation + boot), USB (device detection with unauthorized/offline handling), WiFi (TCP/IP connect), Termux (on-device guide). `ensureAdb()` installs adb via package manager. `ensureSdk()` installs full SDK for emulator use. `findSdkRoot()` and `findSdkTool()` locate existing SDK installations.
-- iOS: check pymobiledevice3, USB device, developer mode, WDA installed, tunnel running, verify WDA connection
+- iOS: check pymobiledevice3, USB device, developer mode, WDA installed, tunnel running, verify WDA connection. The Apple ID password is read via masked `promptSecret` (no terminal echo). Note: AltServer-Linux still receives it as a CLI arg, so it is briefly visible in `ps`/`/proc` during signing — inherent to the AltServer CLI (v0.8.1)
 - `restartWda()` — non-interactive WDA restart for auto-recovery. Two-tier: tier-1 reads stored RSD addr/port from PID file, restarts just WDA+forward in ~3s without pkexec; tier-2 falls back to full tunnel restart if RSD missing or tunnel dead. Called by MCP server on second iOS connection failure.
 - PID file (`/tmp/baremobile-ios-pids`) stores tunnel/WDA/forward PIDs on line 1, RSD addr/port on line 2. `loadPids()` is backward-compatible with legacy 1-line format.
 
@@ -392,7 +393,7 @@ Background process for CLI session mode. Holds device connection, buffers logcat
 
 - IPC via Unix domain socket
 - Logcat: spawns `adb logcat` in background, buffers entries, flushes to `.baremobile/logcat-*.json`
-- Session state in `.baremobile/session.json`
+- Session state in `.baremobile/session.json`, written `0600` — it carries the unauthenticated loopback control port, so it must not be readable by other local users (v0.8.1)
 
 ### `src/session-client.js` -- Session Client
 
@@ -400,7 +401,7 @@ IPC client for CLI -> daemon communication. Used by `cli.js` to send commands to
 
 ### `mcp-server.js` -- MCP Server
 
-JSON-RPC 2.0 over stdio. 11 tools: `snapshot`, `tap`, `type`, `press`, `scroll`, `swipe`, `long_press`, `launch`, `screenshot`, `back`, `find_by_text`. All accept optional `platform: "android" | "ios"`. Auto-restarts WDA tunnel on second iOS connection failure via `restartWda()`.
+JSON-RPC 2.0 over stdio. 17 tools: `snapshot`, `tap`, `type`, `press`, `scroll`, `swipe`, `long_press`, `launch`, `activate` (iOS-only), `screenshot`, `back`, `grant_permission`/`revoke_permission`/`clear_app_data`/`list_permissions` (Android-only), `wait_stable`, `find_by_text`. All accept optional `platform: "android" | "ios" | "auto"` and `serial`. Auto-restarts WDA tunnel on second iOS connection failure via `restartWda()`.
 
 Per-platform lazy pages -- `connect()` on first tool call per platform. Action tools return `'ok'`, agent calls `snapshot` explicitly to observe. Large snapshots (>30K chars) saved to `.baremobile/screen-{timestamp}.yml`.
 
@@ -671,7 +672,7 @@ Same page-object pattern as Android, verified on physical iPhone.
 | 3.4 | iOS navigation fixes -- W3C Actions tap, screen-size-aware back(), launch error checking |
 | 3.5 | iOS snapshot cleanup + auto-restart -- keyboard/Unicode/path stripping, internal name filter, findByText, WDA auto-restart (tier-1: stored RSD, ~3s, no pkexec; tier-2: full tunnel restart) |
 | 3.6 | iOS custom-UI refs + scale factor -- `accessible` attr for Telegram-style apps, Retina `scaleFactor` + `screenshotToPoint()` |
-| 3 | MCP server -- 11 tools, JSON-RPC 2.0 over stdio |
+| 3 | MCP server -- 17 tools, JSON-RPC 2.0 over stdio |
 | 4 | CLI session mode -- daemon, logcat, full command set |
 
 ### Future

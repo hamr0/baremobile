@@ -71,7 +71,7 @@ await page.type(ref, 'new', {clear: true}); // clear field first, then type
 await page.press('enter');                  // press key
 await page.scroll(ref, 'down');             // scroll within element
 await page.longPress(ref);                  // long press
-await page.swipe(x1, y1, x2, y2, 300);     // raw swipe
+await page.swipe(x1, y1, x2, y2, 300);     // raw swipe — coords must be numbers (non-numeric throws InvalidArgument)
 ```
 
 ### Waiting

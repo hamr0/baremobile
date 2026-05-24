@@ -40,8 +40,25 @@ function createUi() {
       });
     });
   }
+  // Like prompt(), but does not echo what the user types — for secrets such as
+  // the Apple ID password. The prompt text is written before muting; keystrokes
+  // are suppressed via the _writeToOutput hook (standard readline masking).
+  function promptSecret(question) {
+    const rl = createInterface({ input: process.stdin, output: process.stdout, terminal: true });
+    return new Promise((resolve) => {
+      let muted = false;
+      rl._writeToOutput = (s) => { if (!muted) rl.output.write(s); };
+      rl.question(question, (answer) => {
+        rl.close();
+        process.stdout.write('\n');
+        resolve(answer.trim());
+      });
+      muted = true;
+    });
+  }
   return {
     prompt,
+    promptSecret,
     waitForEnter: (msg) => prompt(`${msg} [press Enter to continue] `),
     write: (s) => process.stdout.write(s),
     ok: (s) => process.stdout.write(`\x1b[32m✓\x1b[0m ${s}\n`),

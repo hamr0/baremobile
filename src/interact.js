@@ -81,9 +81,26 @@ export async function press(key, opts = {}) {
 
 /**
  * Raw swipe between two points.
+ *
+ * Every coordinate is coerced to a rounded integer before it reaches the
+ * `adb shell` string. Unlike tap/tapXY (which already round) these values
+ * were previously interpolated raw — a non-numeric arg (the MCP/daemon
+ * transports don't enforce the `number` schema) would re-parse on the device
+ * shell, turning `input swipe …` into arbitrary command execution. Reject
+ * anything that isn't a finite number so the only thing that can land in the
+ * command string is digits and a leading minus.
  */
 export async function swipe(x1, y1, x2, y2, duration = 300, opts = {}) {
-  await shell(`input swipe ${x1} ${y1} ${x2} ${y2} ${duration}`, opts);
+  const num = (v, name) => {
+    const r = Math.round(Number(v));
+    if (!Number.isFinite(r)) {
+      throw new InvalidArgument(`swipe ${name} must be a number, got ${JSON.stringify(v)}`);
+    }
+    return r;
+  };
+  const [sx, sy, ex, ey, dur] =
+    [num(x1, 'x1'), num(y1, 'y1'), num(x2, 'x2'), num(y2, 'y2'), num(duration, 'duration')];
+  await shell(`input swipe ${sx} ${sy} ${ex} ${ey} ${dur}`, opts);
 }
 
 /**

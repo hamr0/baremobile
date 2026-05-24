@@ -35,7 +35,11 @@ const SESSION_FILE = 'session.json';
  */
 export function atomicWriteFileSync(path, contents) {
   const tmp = `${path}.tmp`;
-  writeFileSync(tmp, contents);
+  // 0600: session.json carries the daemon's loopback port. The daemon's
+  // /command endpoint is unauthenticated, so a world-readable port lets any
+  // other local user drive the connected device. Owner-only read closes the
+  // cross-user path (same-uid processes can already read our files regardless).
+  writeFileSync(tmp, contents, { mode: 0o600 });
   renameSync(tmp, path);
 }
 

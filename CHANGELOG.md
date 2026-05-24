@@ -1,5 +1,21 @@
 # Changelog
 
+## 0.8.1
+
+Security review of the dual-platform control surface. Every finding was reproduced with an executable PoC (full MCP path) before the fix and re-tested after; the contrast cases confirm `tap`/`tapXY`/`press` were never affected. 301 unit tests still pass.
+
+### Security
+
+- **Command injection via `swipe` coordinates (High)** — `src/interact.js`: `x1..duration` were interpolated raw into `input swipe …`, which re-parses on the device shell. The MCP and daemon transports don't enforce the `number` schema, so a non-numeric value such as `x1: "0 0 0 0 0; reboot;"` reached the device shell and executed — the one device-shell sink that wasn't coerced or quoted (unlike `tap`/`tapXY`/`press`). Now every value goes through `Math.round(Number())` and throws `InvalidArgument` on non-finite input, so only digits and a leading minus can land in the command string.
+- **usbmux forwarder bound to all interfaces (Medium)** — `src/usbmux.js`: `server.listen(localPort, …)` omitted the host, so Node bound `0.0.0.0`/`::`, exposing the auth-less WDA endpoint (full iPhone control) to the local network during a USB session. Now binds `127.0.0.1` only, and the in-process consumer connects to `127.0.0.1` explicitly (not `localhost`) so the path never depends on whether `localhost` resolves to IPv4 or IPv6 first.
+- **iOS WiFi-IP cache in shared `/tmp`, used unvalidated (Low)** — `src/ios.js`: the device IP was read from a predictable `/tmp/baremobile-ios-wifi` and used verbatim as the WDA host, so another local user could symlink/clobber the file or plant an IP to redirect the agent's WDA traffic. Moved to `~/.config/baremobile/ios-wifi` (per-user, like `wifi-persist.js`) and gated on both read and write by `isValidIpv4()`.
+- **Daemon session file world-readable (Low)** — `src/daemon.js`: `session.json` carries the unauthenticated daemon's loopback port and was written `0644`. Now written `0600` so another local user can't read the port (the proportionate fix — a same-uid process can read our files regardless, so a token would add no protection it doesn't already have).
+- **Apple ID password echoed at the prompt (Low)** — `cli.js`/`src/setup.js`: the password prompt echoed keystrokes to the terminal and scrollback. Added a masked `promptSecret` (readline `_writeToOutput` mute) used for both password prompts, with an `ui.prompt` fallback for test doubles.
+
+### Known limitation
+
+- AltServer-Linux takes the Apple ID password as a CLI argument (`-p <password>`), so it is briefly visible to other local users via `ps`/`/proc/<pid>/cmdline` while signing runs. This is inherent to the AltServer CLI and cannot be avoided from this package; documented in `src/setup.js`. Run setup on a single-user machine.
+
 ## 0.8.0
 
 Code-review fix plan — security, robustness, typed errors, and agent ergonomics. See `docs/02-features/code-review-fixes.md` for the phased plan and `docs/03-logs/{bug-log,decisions-log,implementation-log,validation-log}.md` for full provenance.

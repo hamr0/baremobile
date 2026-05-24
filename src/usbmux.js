@@ -146,6 +146,10 @@ export function forward(deviceId, remotePort, localPort) {
     });
 
     server.on('error', reject);
-    server.listen(localPort, () => resolve(server));
+    // Bind loopback only. The sole consumer is this process reaching the
+    // device via http://localhost:<port>; binding all interfaces (the default
+    // when host is omitted) would expose the auth-less WDA endpoint — i.e.
+    // full control of the iPhone — to anyone on the local network.
+    server.listen(localPort, '127.0.0.1', () => resolve(server));
   });
 }

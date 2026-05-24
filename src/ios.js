@@ -11,16 +11,22 @@
 // then prune() + formatTree() produce identical YAML output.
 
 import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
 import { prune } from './prune.js';
 import { formatTree } from './aria.js';
 import { listDevices, forward } from './usbmux.js';
+import { isValidIpv4 } from './wifi-persist.js';
 import {
   ElementNotFound, SelectorNotFound, InvalidArgument, WdaTimeout, WdaUnavailable,
   WaitTimeout, DeviceError,
 } from './errors.js';
 import { traceCall } from './debug.js';
 
-const WIFI_CACHE = '/tmp/baremobile-ios-wifi';
+// Per-user cache, not shared /tmp: a predictable world-writable /tmp path
+// lets another local user pre-create/symlink it or plant an IP that we would
+// then use verbatim as the WDA host. Mirrors wifi-persist.js's location.
+const WIFI_CACHE = path.join(os.homedir(), '.config', 'baremobile', 'ios-wifi');
 
 // --- WDA HTTP helpers (instance-scoped via closure) ---
 
@@ -88,7 +94,7 @@ async function resolveWda(opts) {
   // 2. Try cached WiFi IP — works even without USB
   try {
     const cachedIp = (await fs.readFile(WIFI_CACHE, 'utf8')).trim();
-    if (cachedIp) {
+    if (isValidIpv4(cachedIp)) {
       const wifiBase = `http://${cachedIp}:8100`;
       if (await wdaReady(wifiBase)) return { baseUrl: wifiBase, cleanup: () => {} };
     }
@@ -101,17 +107,20 @@ async function resolveWda(opts) {
       const dev = devices[0];
       const server = await forward(dev.deviceId, 8100, 0);
       const localPort = server.address().port;
-      const tmpBase = `http://localhost:${localPort}`;
+      // forward() binds 127.0.0.1; connect to the same literal (not "localhost")
+      // so we never depend on how localhost resolves (IPv4 vs IPv6 first).
+      const tmpBase = `http://127.0.0.1:${localPort}`;
 
       try {
         const res = await fetch(`${tmpBase}/status`, { signal: AbortSignal.timeout(3000) });
         const status = await res.json();
         const wifiIp = status.value?.ios?.ip;
 
-        if (wifiIp) {
+        if (isValidIpv4(wifiIp)) {
           const wifiBase = `http://${wifiIp}:8100`;
           if (await wdaReady(wifiBase)) {
             server.close();
+            await fs.mkdir(path.dirname(WIFI_CACHE), { recursive: true }).catch(() => {});
             await fs.writeFile(WIFI_CACHE, wifiIp).catch(() => {});
             return { baseUrl: wifiBase, cleanup: () => {} };
           }

@@ -1175,10 +1175,13 @@ export async function setupIos(ui) {
     ui.write('   Try logging in at https://developer.apple.com/\n\n');
     const email = await ui.prompt('Apple ID email: ');
     if (!email) { ui.fail('Email required.'); return; }
-    const password = await ui.prompt('Apple ID password: ');
+    const password = await (ui.promptSecret || ui.prompt).call(ui, 'Apple ID password: ');
     if (!password) { ui.fail('Password required.'); return; }
 
     ui.write('Starting AltServer...\n');
+    // NOTE: AltServer-Linux takes the password as a CLI arg, so it is briefly
+    // visible in `ps`/`/proc/<pid>/cmdline` to other local users while signing
+    // runs. This is a limitation of the AltServer CLI we cannot avoid here.
     const altArgs = ['-u', device.serial, '-a', email, '-p', password, wdaIpa];
     const result = await spawnAltServer(ui, altserver, altArgs);
     if (!result) return;
@@ -1516,11 +1519,14 @@ export async function renewCert(ui) {
   ui.write('   Try logging in at https://developer.apple.com/\n\n');
   const email = await ui.prompt('Apple ID email: ');
   if (!email) { ui.fail('Email required.'); return; }
-  const password = await ui.prompt('Apple ID password: ');
+  const password = await (ui.promptSecret || ui.prompt).call(ui, 'Apple ID password: ');
   if (!password) { ui.fail('Password required.'); return; }
 
   const wdaIpa = resolve('.wda/WebDriverAgent.ipa');
   ui.write('Starting AltServer...\n');
+  // NOTE: AltServer-Linux takes the password as a CLI arg, so it is briefly
+  // visible in `ps`/`/proc/<pid>/cmdline` to other local users while signing
+  // runs. This is a limitation of the AltServer CLI we cannot avoid here.
   const altArgs = ['-u', device.serial, '-a', email, '-p', password, wdaIpa];
   const result = await spawnAltServer(ui, altserver, altArgs);
   if (!result) return;
