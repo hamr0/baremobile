@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+## 0.9.0 — 2026-05-29
+
 ### Added
 - **TypeScript declaration files (`.d.ts`) now ship with the package.** Adopters get full autocomplete and type-checking on `baremobile` and `baremobile/ios` without any TypeScript in their project. Types are generated from the existing JSDoc via `tsc` (dev-only `typescript` + `@types/node`), so source and types can never drift. `package.json` `exports` gain a `types` condition on every subpath; `files` now ships `types/` and `CHANGELOG.md`.
 - **`ci.yml`** — push/PR workflow gating on `npm ci → typecheck → build:types → test`. No lint step (tsc's `checkJs` + `strictNullChecks` covers the bug class).

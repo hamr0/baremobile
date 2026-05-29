@@ -393,7 +393,7 @@ Background process for CLI session mode. Holds device connection, buffers logcat
 
 - IPC via Unix domain socket
 - Logcat: spawns `adb logcat` in background, buffers entries, flushes to `.baremobile/logcat-*.json`
-- Session state in `.baremobile/session.json`, written `0600` — it carries the loopback control port and a per-session token. `/command` requires the token (constant-time compare); loopback is reachable by any local uid, so the token — not just port secrecy — is what gates device control to processes that can read our `0600` file. `/command` also caps the request body at 1 MiB and `/status` stays open as a liveness probe (Unreleased; supersedes the v0.8.1 "0600 is sufficient" note)
+- Session state in `.baremobile/session.json`, written `0600` — it carries the loopback control port and a per-session token. `/command` requires the token (constant-time compare); loopback is reachable by any local uid, so the token — not just port secrecy — is what gates device control to processes that can read our `0600` file. `/command` also caps the request body at 1 MiB and `/status` stays open as a liveness probe (v0.9.0; supersedes the v0.8.1 "0600 is sufficient" note)
 
 ### `src/session-client.js` -- Session Client
 
@@ -676,6 +676,7 @@ Same page-object pattern as Android, verified on physical iPhone.
 | 3 | MCP server -- 17 tools, JSON-RPC 2.0 over stdio |
 | 4 | CLI session mode -- daemon, logcat, full command set |
 | 4.5 | Library-conventions compliance -- JSDoc→`.d.ts` types toolchain (checkJs + strictNullChecks, generated on publish, git-ignored), `exports` types conditions on every subpath, `ci.yml` push/PR gate. No runtime change; 301 tests green. |
+| 4.6 | Follow-up security hardening (v0.9.0) -- daemon `/command` token gate + 1 MiB body cap (`createCommandServer` factory), predictable `/tmp` files moved to `~/.config/baremobile/`, cmdline-tools `mkdtemp` extract, UDID redaction. Suite 301 → 321 green. |
 
 ### Future
 

@@ -1,6 +1,6 @@
 # System State
 
-> Current as of May 2026 (post v0.8.0 code-review fix plan; types-compliance + security hardening pending release).
+> Current as of v0.9.0 (May 2026) — types-compliance toolchain (JSDoc → `.d.ts`) + follow-up security hardening, on top of the v0.8.0 code-review fix plan.
 
 ## Architecture
 
@@ -40,7 +40,7 @@ mcp-server.js       — MCP server: JSON-RPC 2.0 over stdio, 17 tools, dual-plat
 - **MCP**: `platform: 'auto'` probe+cache; `serial` arg on every tool; `_pages` keyed by `{platform, serial}`; tool descriptions lead with `[android|ios]` / `[ios-only]` etc.; 17 tools total (added `activate`, `wait_stable`, `grant_permission`, `revoke_permission`, `clear_app_data`, `list_permissions`).
 - **Observability**: `DEBUG_BAREMOBILE=1` mirrors every adb/wda call to stderr with channel, label, outcome, latency.
 
-## Security hardening (Unreleased — follow-up audit)
+## Security hardening (v0.9.0 — follow-up audit)
 
 Second-pass audit after the types-compliance work. Scope was the local control surface (no server/DB/web). Command-injection sinks re-confirmed clean (array-arg `execFile` everywhere; `interact.js` coerces coords + double-escapes `type()` text). Findings fixed:
 
