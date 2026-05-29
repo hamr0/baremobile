@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased]
+
+### Changed
+- **`publish.yml` is now manual-only (`workflow_dispatch`) — npm OIDC trusted publishing with provenance, idempotent, and verifies the registry end-state.**
+
 ## 0.8.1
 
 Security review of the dual-platform control surface. Every finding was reproduced with an executable PoC (full MCP path) before the fix and re-tested after; the contrast cases confirm `tap`/`tapXY`/`press` were never affected. 301 unit tests still pass.
