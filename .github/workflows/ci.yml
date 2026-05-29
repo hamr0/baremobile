@@ -1,0 +1,30 @@
+# Push / PR gate (LIBRARY_CONVENTIONS §5): npm ci → typecheck → build:types → test.
+# No lint step — tsc (checkJs + strictNullChecks) already catches the bug class
+# that matters, and pulling in the ESLint ecosystem cuts against the dependency
+# hierarchy for a small vanilla-ESM lib. The publish workflow gates the same way.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+      - name: Install dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Build types
+        run: npm run build:types
+      - name: Test
+        run: npm test

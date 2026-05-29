@@ -29,7 +29,7 @@ export async function snapshot(opts = {}) {
 
 /**
  * Connect to a device and return a page object.
- * @param {{device?: string, termux?: boolean}} [opts] — device serial or 'auto' (default)
+ * @param {{device?: string, termux?: boolean}} [opts] - device serial or 'auto' (default)
  * @returns {Promise<object>} page
  */
 export async function connect(opts = {}) {

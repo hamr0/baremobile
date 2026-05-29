@@ -90,10 +90,11 @@ export class DeviceError extends BaremobileError {
  * @returns {boolean}
  */
 export function isConnectionError(err) {
-  const code = err?.code;
+  const e = /** @type {{ code?: string, message?: string }} */ (err);
+  const code = e?.code;
   if (code === 'ECONNREFUSED' || code === 'ECONNRESET' || code === 'EPIPE') return true;
   if (code === 'WdaTimeout' || code === 'WdaUnavailable' || code === 'WDA_TIMEOUT') return true;
-  const msg = err?.message || '';
+  const msg = e?.message || '';
   // Fallback for errors we haven't typed yet (third-party fetch failures).
   return msg.includes('fetch failed') || msg.includes('ECONNREFUSED')
     || msg.includes('ECONNRESET') || msg.includes('UND_ERR');

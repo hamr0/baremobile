@@ -44,6 +44,7 @@ export function parseXml(xml) {
       attrs[am[1]] = am[2];
     }
 
+    /** @type {import('./types.js').UiNode} */
     const node = {
       class: attrs.class || '',
       text: decodeEntities(attrs.text || ''),

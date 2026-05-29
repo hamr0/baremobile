@@ -25,8 +25,9 @@ export function prune(root, opts = {}) {
   // Step 0: Optionally clamp depth. We mutate children in-place — the input
   // tree is short-lived per snapshot so this is safe.
   if (opts.maxDepth != null) {
+    const maxDepth = opts.maxDepth; // capture: closures don't carry the null-narrowing
     function clamp(node, depth) {
-      if (depth >= opts.maxDepth) {
+      if (depth >= maxDepth) {
         if (node.children.length > 0) {
           truncated = true;
           node.children = [{ class: 'Truncated', text: '…',

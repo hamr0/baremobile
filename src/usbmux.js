@@ -98,7 +98,7 @@ export function connectDevice(deviceId, port) {
     let gotResponse = false;
     sock.once('data', (data) => {
       gotResponse = true;
-      const result = data.length >= 20 ? data.readUInt32LE(16) : -1;
+      const result = Buffer.isBuffer(data) && data.length >= 20 ? data.readUInt32LE(16) : -1;
       if (result === 0) {
         sock.removeAllListeners('error');
         resolve(sock);

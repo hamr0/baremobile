@@ -20,6 +20,7 @@
 | File | What |
 |------|------|
 | [code-review-fixes.md](02-features/code-review-fixes.md) | Phased plan to fix all Critical + Important findings from the v0.7.13 code review and ship targeted enhancements. |
+| [library-conventions-compliance.md](02-features/library-conventions-compliance.md) | Phased plan to comply with `LIBRARY_CONVENTIONS.md` — JSDoc→`.d.ts` types toolchain (§2), package shape, doc set, and push/PR CI. |
 
 ### 03-logs/ — Memory (what changed over time)
 | File | What |

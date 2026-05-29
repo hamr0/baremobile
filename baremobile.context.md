@@ -2,6 +2,21 @@
 
 Use this file as context when building agents that control Android/iOS devices via baremobile.
 
+## TypeScript types
+
+baremobile ships generated `.d.ts` declarations, so you get full autocomplete and
+type-checking with **zero TypeScript setup** — install and import. Both entry
+points are typed:
+
+```js
+import { connect } from 'baremobile';        // Android — types/index.d.ts
+import { connect as connectIos } from 'baremobile/ios';  // iOS — types/ios.d.ts
+```
+
+The source is plain ESM JavaScript with JSDoc; the `.d.ts` are generated from that
+JSDoc by `tsc`, so the types always match the shipped code. baremobile itself has
+**no production dependencies** (`typescript` is dev-only and never installed by adopters).
+
 ## Core Loop
 
 Every agent interaction follows observe-think-act:
@@ -273,7 +288,7 @@ Same `snapshot()` / `tap(ref)` pattern as Android. WDA XML is translated into th
 
 ### Quick start
 ```js
-import { connect } from 'baremobile/src/ios.js';
+import { connect } from 'baremobile/ios';
 
 const page = await connect();
 console.log(await page.snapshot());

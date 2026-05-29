@@ -11,6 +11,19 @@ import { saveDevice } from './wifi-persist.js';
 const PID_FILE = '/tmp/baremobile-ios-pids';
 const ANISETTE_FALLBACK = 'https://ani.sidestore.io';
 
+/**
+ * Detach a spawned child and its stdio pipes so the parent Node process can
+ * exit (child.unref() alone is not enough — the pipes keep the loop alive).
+ * The pipes are net.Socket at runtime (which has unref) though typed Readable,
+ * so reach unref via a structural cast and no-op if it is somehow absent.
+ * @param {import('node:child_process').ChildProcess} child
+ */
+function unrefChild(child) {
+  /** @type {{ unref?: () => void } | null} */ (child.stdout)?.unref?.();
+  /** @type {{ unref?: () => void } | null} */ (child.stderr)?.unref?.();
+  child.unref();
+}
+
 // --- Host detection ---
 
 /**
@@ -130,8 +143,8 @@ function waitForOutput(child, regex, timeoutMs = 15000) {
         resolve(output);
       }
     };
-    child.stdout.on('data', onData);
-    child.stderr.on('data', onData);
+    child.stdout?.on('data', onData);
+    child.stderr?.on('data', onData);
     child.on('close', (code) => {
       finish(new Error(`Process exited (code ${code}): ${output.slice(0, 200)}`));
     });
@@ -222,7 +235,7 @@ async function spawnAltServer(ui, altserver, args) {
 
 /**
  * Find a USB-connected iOS device via usbmuxd.
- * @returns {Promise<{deviceId: number, serial: string}>}
+ * @returns {Promise<{deviceId: number, serial: string} | null>}
  */
 async function findUsbDevice() {
   try {
@@ -417,7 +430,7 @@ async function setupEmulator(ui) {
   } catch { /* none running */ }
 
   ui.write('   Launching emulator (first boot may take up to 2 minutes)...\n');
-  let spawnError = null;
+  let spawnError = /** @type {Error | null} */ (null);
   const emuChild = spawn(emulator, ['-avd', 'baremobile'], {
     stdio: 'ignore', detached: true, env: sdkEnv,
   });
@@ -725,10 +738,10 @@ export async function ensureAdb(ui, host) {
       execFileSync('brew', ['install', 'android-platform-tools'], { stdio: 'inherit' });
     } else if (host.pkg === 'dnf') {
       ui.write('   Installing android-tools via dnf...\n');
-      elevatedExec([which('dnf'), 'install', '-y', 'android-tools'], { host });
+      elevatedExec([which('dnf') ?? 'dnf', 'install', '-y', 'android-tools'], { host });
     } else if (host.pkg === 'apt') {
       ui.write('   Installing android-tools-adb via apt...\n');
-      elevatedExec([which('apt'), 'install', '-y', 'android-tools-adb'], { host });
+      elevatedExec([which('apt') ?? 'apt', 'install', '-y', 'android-tools-adb'], { host });
     } else {
       ui.fail('No supported package manager found.');
       ui.write('   Install manually: https://developer.android.com/tools/releases/platform-tools\n');
@@ -826,7 +839,7 @@ export async function ensureSdk(ui, host) {
 
 /**
  * Install required SDK packages via sdkmanager.
- * @returns {string|null} sdkRoot on success
+ * @returns {Promise<string|null>} sdkRoot on success
  */
 async function installSdkPackages(ui, sdkmanager, sdkRoot) {
   const sdkEnv = { ...process.env, ANDROID_HOME: sdkRoot, ANDROID_SDK_ROOT: sdkRoot };
@@ -1229,7 +1242,7 @@ export async function setupIos(ui) {
   ui.step(9, 'Final verification');
   try {
     const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
-    const status = await res.json();
+    const status = /** @type {{value?: any}} */ (await res.json());
     if (status.value?.ready) {
       ui.ok('WDA ready at http://localhost:8100');
       ui.write('\niOS setup complete. Run: baremobile open --platform=ios\n');
@@ -1244,7 +1257,7 @@ export async function setupIos(ui) {
 /**
  * Start WDA server — 5 steps. For when iPhone is already set up.
  * @param {object} ui
- * @param {string} [prefix] — step prefix for sub-steps (e.g. '9' → 9a, 9b, ...)
+ * @param {string} [prefix] - step prefix for sub-steps (e.g. '9' -> 9a, 9b, ...)
  */
 export async function startWda(ui, prefix) {
   const s = (n) => prefix ? `${prefix}${String.fromCharCode(96 + n)}` : n;
@@ -1421,7 +1434,7 @@ asyncio.run(main())
     await new Promise(r => setTimeout(r, 3000));
     try {
       const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
-      const status = await res.json();
+      const status = /** @type {{value?: any}} */ (await res.json());
       if (status.value?.ready) { wdaReady = true; break; }
     } catch { /* retry */ }
   }
@@ -1430,12 +1443,8 @@ asyncio.run(main())
   savePids(tunnelChild.pid, wdaChild.pid, process.pid, rsd.rsdAddr, rsd.rsdPort);
 
   // Unref children + their pipes + forwarder so Node can exit
-  tunnelChild.stdout.unref();
-  tunnelChild.stderr.unref();
-  tunnelChild.unref();
-  wdaChild.stdout.unref();
-  wdaChild.stderr.unref();
-  wdaChild.unref();
+  unrefChild(tunnelChild);
+  unrefChild(wdaChild);
   if (fwdServer) fwdServer.unref();
 
   if (wdaReady) {
@@ -1467,14 +1476,12 @@ asyncio.run(main())
       await new Promise(r => setTimeout(r, 3000));
       try {
         const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
-        const status = await res.json();
+        const status = /** @type {{value?: any}} */ (await res.json());
         if (status.value?.ready) { wdaReady = true; break; }
       } catch { /* retry */ }
     }
     savePids(tunnelChild.pid, retryChild.pid, process.pid, rsd.rsdAddr, rsd.rsdPort);
-    retryChild.stdout.unref();
-    retryChild.stderr.unref();
-    retryChild.unref();
+    unrefChild(retryChild);
     if (!wdaReady) ui.fail('WDA still not responding. Run: baremobile ios teardown && baremobile setup');
   } else {
     ui.fail('WDA not responding after 5 attempts');
@@ -1612,7 +1619,7 @@ export async function teardown() {
 /**
  * Non-interactive WDA restart for auto-recovery.
  * Two-tier: first tries WDA-only restart (if tunnel is alive), then full restart.
- * @param {function} [log] — optional log callback
+ * @param {function} [log] - optional log callback
  * @returns {Promise<{baseUrl: string}>}
  */
 export async function restartWda(log = () => {}) {
@@ -1671,16 +1678,14 @@ asyncio.run(main())
             await new Promise(r => setTimeout(r, 2000));
             try {
               const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
-              const status = await res.json();
+              const status = /** @type {{value?: any}} */ (await res.json());
               if (status.value?.ready) { ready = true; break; }
             } catch { /* retry */ }
           }
 
           if (ready) {
             savePids(pids.tunnel, wdaChild.pid, process.pid, pids.rsdAddr, pids.rsdPort);
-            wdaChild.stdout.unref();
-            wdaChild.stderr.unref();
-            wdaChild.unref();
+            unrefChild(wdaChild);
             if (fwdServer) fwdServer.unref();
             log('WDA restarted (tier-1, no pkexec)');
             return { baseUrl: 'http://localhost:8100' };
@@ -1806,7 +1811,7 @@ asyncio.run(main())
     await new Promise(r => setTimeout(r, 2000));
     try {
       const res = await fetch('http://localhost:8100/status', { signal: AbortSignal.timeout(3000) });
-      const status = await res.json();
+      const status = /** @type {{value?: any}} */ (await res.json());
       if (status.value?.ready) { ready = true; break; }
     } catch { /* retry */ }
   }
@@ -1820,12 +1825,8 @@ asyncio.run(main())
 
   // Save PIDs and unref
   savePids(tunnelChild.pid, wdaChild.pid, process.pid, rsd.rsdAddr, rsd.rsdPort);
-  tunnelChild.stdout.unref();
-  tunnelChild.stderr.unref();
-  tunnelChild.unref();
-  wdaChild.stdout.unref();
-  wdaChild.stderr.unref();
-  wdaChild.unref();
+  unrefChild(tunnelChild);
+  unrefChild(wdaChild);
   if (fwdServer) fwdServer.unref();
 
   log('WDA restarted successfully');

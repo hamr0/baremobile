@@ -25,8 +25,8 @@ async function run(cmd, args = [], opts = {}) {
         if (err) reject(err);
         else resolve(stdout);
       });
-      child.stdin.write(opts.input);
-      child.stdin.end();
+      child.stdin?.write(opts.input);
+      child.stdin?.end();
     });
   }
   const { stdout } = await execAsync(cmd, args, execOpts);
@@ -224,7 +224,7 @@ export async function torch(on) {
 
 /**
  * Vibrate the device.
- * @param {{duration?: number, force?: boolean}} [opts] — duration in ms (default 1000)
+ * @param {{duration?: number, force?: boolean}} [opts] - duration in ms (default 1000)
  */
 export async function vibrate(opts = {}) {
   const args = [];

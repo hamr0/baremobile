@@ -648,6 +648,7 @@ Same page-object pattern as Android, verified on physical iPhone.
 | Page object pattern | Same API shape as barebrowse. Agents learn one pattern. |
 | WDA over BLE HID for iOS | Real element tree + native click. No Bluetooth adapter, no Python at runtime. BLE HID had flat tree, unreliable mouse, screenshot blackout. |
 | Node.js usbmux over pymobiledevice3 forwarder | pymobiledevice3 forwarder crashed with socket cleanup race. Node.js proxy: zero crashes. |
+| JSDoc → `.d.ts`, generated not committed | Ship TypeScript types (adopter autocomplete + type errors) with no build step and no hand-maintained `.d.ts`. `tsc` (dev-only `typescript`/`@types/node`) checks the JSDoc on every push and before publish, so types can't drift from source. Production deps stay at zero. See `LIBRARY_CONVENTIONS.md` §2. |
 
 ---
 
@@ -674,6 +675,7 @@ Same page-object pattern as Android, verified on physical iPhone.
 | 3.6 | iOS custom-UI refs + scale factor -- `accessible` attr for Telegram-style apps, Retina `scaleFactor` + `screenshotToPoint()` |
 | 3 | MCP server -- 17 tools, JSON-RPC 2.0 over stdio |
 | 4 | CLI session mode -- daemon, logcat, full command set |
+| 4.5 | Library-conventions compliance -- JSDoc→`.d.ts` types toolchain (checkJs + strictNullChecks, generated on publish, git-ignored), `exports` types conditions on every subpath, `ci.yml` push/PR gate. No runtime change; 301 tests green. |
 
 ### Future
 

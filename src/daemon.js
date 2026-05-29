@@ -153,7 +153,7 @@ export async function runDaemon(opts, outputDir) {
       logcatChild.stdout.on('data', (chunk) => {
         partial += chunk.toString();
         const lines = partial.split('\n');
-        partial = lines.pop(); // keep incomplete last line
+        partial = lines.pop() ?? ''; // keep incomplete last line (split always yields ≥1)
         for (const line of lines) {
           if (line.trim()) pushBounded(logcatEntries, line, LOGCAT_MAX, LOGCAT_TRIM);
         }
@@ -278,7 +278,7 @@ export async function runDaemon(opts, outputDir) {
       return { ok: true, value: g };
     },
 
-    logcat: platform === 'ios' ? androidOnly('logcat') : async ({ filter, clear } = {}) => {
+    logcat: platform === 'ios' ? androidOnly('logcat') : async (/** @type {{filter?: string, clear?: boolean}} */ { filter, clear } = {}) => {
       let entries = logcatEntries;
       if (filter) {
         entries = entries.filter(line => line.includes(filter));
@@ -360,10 +360,12 @@ export async function runDaemon(opts, outputDir) {
   });
 
   await new Promise((resolve) => {
-    server.listen(0, '127.0.0.1', () => resolve());
+    server.listen(0, '127.0.0.1', () => resolve(undefined));
   });
 
-  const port = server.address().port;
+  const addr = server.address();
+  // A listening TCP server always yields an AddressInfo object here.
+  const port = (addr && typeof addr === 'object') ? addr.port : 0;
 
   // Write session.json so parent/clients can find us. Use atomic write so
   // the parent's poll loop never reads a partially-written record.

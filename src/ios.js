@@ -36,7 +36,19 @@ const WIFI_CACHE = path.join(os.homedir(), '.config', 'baremobile', 'ios-wifi');
 // can react. Override via BAREMOBILE_WDA_TIMEOUT_MS for slow CI machines.
 const WDA_DEFAULT_TIMEOUT_MS = Number(process.env.BAREMOBILE_WDA_TIMEOUT_MS) || 10_000;
 
+/**
+ * A WDA JSON response. WDA wraps everything in a `value` field whose shape
+ * varies per endpoint, plus `sessionId` on the /session response. Callers
+ * read it with optional chaining, so `value` stays intentionally loose.
+ * @typedef {{ sessionId?: string, value?: any }} WdaResponse
+ */
+
 function createWda(baseUrl) {
+  /**
+   * @param {string} path
+   * @param {RequestInit} [init]
+   * @returns {Promise<WdaResponse>}
+   */
   async function wdaFetch(path, init = {}) {
     const url = `${baseUrl}${path}`;
     const method = init.method || 'GET';
@@ -47,7 +59,7 @@ function createWda(baseUrl) {
         const signal = init.signal ?? AbortSignal.timeout(WDA_DEFAULT_TIMEOUT_MS);
         const res = await traceCall('wda', `${method} ${path}`,
           () => fetch(url, { ...init, signal }));
-        return res.json();
+        return /** @type {Promise<WdaResponse>} */ (res.json());
       } catch (e) {
         const isTimeout = e?.name === 'TimeoutError' || e?.name === 'AbortError';
         if (attempt === 2) {
@@ -57,6 +69,9 @@ function createWda(baseUrl) {
         await new Promise(r => setTimeout(r, 500));
       }
     }
+    // Unreachable: the loop above always returns or throws by attempt 2. This
+    // satisfies the declared return type (no implicit undefined fall-through).
+    throw new WdaTimeout(path, WDA_DEFAULT_TIMEOUT_MS);
   }
 
   const wdaGet = (path) => wdaFetch(path);
@@ -75,7 +90,7 @@ function createWda(baseUrl) {
 async function wdaReady(baseUrl, timeoutMs = 2000) {
   try {
     const res = await fetch(`${baseUrl}/status`, { signal: AbortSignal.timeout(timeoutMs) });
-    const s = await res.json();
+    const s = /** @type {WdaResponse} */ (await res.json());
     return !!s.value?.ready;
   } catch { return false; }
 }
@@ -106,14 +121,17 @@ async function resolveWda(opts) {
     if (devices.length > 0) {
       const dev = devices[0];
       const server = await forward(dev.deviceId, 8100, 0);
-      const localPort = server.address().port;
+      const addr = server.address();
+      // A listening TCP server always yields an AddressInfo object here; guard
+      // only to satisfy the string|AddressInfo|null type from net.Server.
+      const localPort = (addr && typeof addr === 'object') ? addr.port : 0;
       // forward() binds 127.0.0.1; connect to the same literal (not "localhost")
       // so we never depend on how localhost resolves (IPv4 vs IPv6 first).
       const tmpBase = `http://127.0.0.1:${localPort}`;
 
       try {
         const res = await fetch(`${tmpBase}/status`, { signal: AbortSignal.timeout(3000) });
-        const status = await res.json();
+        const status = /** @type {WdaResponse} */ (await res.json());
         const wifiIp = status.value?.ios?.ip;
 
         if (isValidIpv4(wifiIp)) {
@@ -237,6 +255,7 @@ export function translateWda(xml) {
 
     // Invisible containers: create node for nesting but strip interactive/text
     // so prune() collapses them as empty wrappers
+    /** @type {import('./types.js').UiNode} */
     const node = {
       class: type,
       text: invisible ? '' : (label || ''),

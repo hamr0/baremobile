@@ -11,18 +11,24 @@ const DUMP_PATH = '/data/local/tmp/baremobile.xml';
 /**
  * Run raw adb command. Threads `-s serial` if opts.serial set.
  * @param {string[]} args
- * @param {{serial?: string, timeout?: number}} [opts]
+ * @param {{serial?: string, timeout?: number, encoding?: BufferEncoding | 'buffer'}} [opts]
  * @returns {Promise<string>} stdout
  */
 export async function exec(args, opts = {}) {
   const cmd = opts.serial ? ['-s', opts.serial, ...args] : args;
+  /** @type {{ timeout: number, maxBuffer: number, encoding?: BufferEncoding | 'buffer' }} */
   const execOpts = {
     timeout: opts.timeout ?? 10_000,
     maxBuffer: 4 * 1024 * 1024,
   };
   if (opts.encoding !== undefined) execOpts.encoding = opts.encoding;
-  const { stdout } = await traceCall('adb', cmd, () => execAsync('adb', cmd, execOpts));
-  return stdout;
+  // Cast to the base options type so tsc picks the string-returning execFile
+  // overload; `encoding: 'buffer'` (used by screenshot) still applies at runtime.
+  const { stdout } = await traceCall('adb', cmd,
+    () => execAsync('adb', cmd, /** @type {import('node:child_process').ExecFileOptions} */ (execOpts)));
+  // The encoding overload widens stdout to string|Buffer; non-buffer callers get
+  // a string, and the lone buffer caller (screenshot) reads it as a Buffer anyway.
+  return /** @type {string} */ (stdout);
 }
 
 /**
