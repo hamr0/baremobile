@@ -2,13 +2,17 @@
 // All setup logic lives here — cli.js is thin routing.
 
 import { resolve, join } from 'node:path';
-import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, statSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, unlinkSync, mkdirSync, mkdtempSync, statSync } from 'node:fs';
 import { execFileSync, spawn } from 'node:child_process';
-import { homedir } from 'node:os';
+import { homedir, tmpdir } from 'node:os';
 import { checkIosCert } from './ios-cert.js';
 import { saveDevice } from './wifi-persist.js';
 
-const PID_FILE = '/tmp/baremobile-ios-pids';
+// Per-user dir, not shared /tmp: loadPids() feeds process.kill(), so a
+// predictable world-writable path lets another local user plant PIDs we would
+// then SIGKILL. Mirrors wifi-persist.js / ios.js / ios-cert.js.
+const CONFIG_DIR = join(homedir(), '.config', 'baremobile');
+const PID_FILE = join(CONFIG_DIR, 'ios-pids');
 const ANISETTE_FALLBACK = 'https://ani.sidestore.io';
 
 /**
@@ -293,6 +297,7 @@ export function parseWdaBundleFromJson(json) {
 function savePids(tunnelPid, wdaPid, fwdPid, rsdAddr, rsdPort) {
   let content = `${tunnelPid} ${wdaPid} ${fwdPid}`;
   if (rsdAddr && rsdPort) content += `\n${rsdAddr} ${rsdPort}`;
+  try { mkdirSync(CONFIG_DIR, { recursive: true }); } catch {}
   writeFileSync(PID_FILE, content);
 }
 
@@ -807,19 +812,24 @@ export async function ensureSdk(ui, host) {
         ui.write('   Downloading command-line tools...\n');
         mkdirSync(cmdlineDir, { recursive: true });
         const zipUrl = 'https://dl.google.com/android/repository/commandlinetools-linux-11076708_latest.zip';
-        const zipPath = '/tmp/android-cmdline-tools.zip';
-        execFileSync('curl', ['-fsSL', '-o', zipPath, zipUrl], { stdio: 'inherit', timeout: 120000 });
-        // Extract to temp, then move contents to latest/
-        const tmpDir = '/tmp/android-cmdline-extract';
-        execFileSync('rm', ['-rf', tmpDir], { stdio: 'pipe' });
-        mkdirSync(tmpDir, { recursive: true });
-        execFileSync('unzip', ['-q', '-o', zipPath, '-d', tmpDir], { stdio: 'inherit' });
-        // The zip contains cmdline-tools/ — move its contents
-        const extractedDir = join(tmpDir, 'cmdline-tools');
-        if (existsSync(extractedDir)) {
-          execFileSync('sh', ['-c', `cp -r ${extractedDir}/* ${cmdlineDir}/`], { stdio: 'pipe' });
+        // Unpredictable, owner-only work dir (mkdtemp → 0700) so a co-located
+        // user can't pre-plant or symlink a fixed /tmp path and swap the
+        // archive or the extracted binaries we then execute (TOCTOU).
+        const workDir = mkdtempSync(join(tmpdir(), 'baremobile-cmdline-'));
+        try {
+          const zipPath = join(workDir, 'cmdline-tools.zip');
+          execFileSync('curl', ['-fsSL', '-o', zipPath, zipUrl], { stdio: 'inherit', timeout: 120000 });
+          const extractDir = join(workDir, 'extract');
+          mkdirSync(extractDir, { recursive: true });
+          execFileSync('unzip', ['-q', '-o', zipPath, '-d', extractDir], { stdio: 'inherit' });
+          // The zip contains cmdline-tools/ — move its contents
+          const extractedDir = join(extractDir, 'cmdline-tools');
+          if (existsSync(extractedDir)) {
+            execFileSync('sh', ['-c', `cp -r ${extractedDir}/* ${cmdlineDir}/`], { stdio: 'pipe' });
+          }
+        } finally {
+          execFileSync('rm', ['-rf', workDir], { stdio: 'pipe' });
         }
-        execFileSync('rm', ['-rf', tmpDir, zipPath], { stdio: 'pipe' });
         ui.ok('Command-line tools installed');
       }
     }

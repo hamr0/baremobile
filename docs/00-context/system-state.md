@@ -1,6 +1,6 @@
 # System State
 
-> Current as of May 2026 (post v0.8.0 — code-review fix plan complete).
+> Current as of May 2026 (post v0.8.0 code-review fix plan; types-compliance + security hardening pending release).
 
 ## Architecture
 
@@ -39,6 +39,16 @@ mcp-server.js       — MCP server: JSON-RPC 2.0 over stdio, 17 tools, dual-plat
 - **Agent ergonomics**: `tap`/`type`/`scroll`/`longPress` accept selectors `{text|contentDesc}`; `waitForStable({pollMs, stableMs, timeout})`; `snapshot({maxDepth, maxNodes})`; MCP `wait_stable` tool.
 - **MCP**: `platform: 'auto'` probe+cache; `serial` arg on every tool; `_pages` keyed by `{platform, serial}`; tool descriptions lead with `[android|ios]` / `[ios-only]` etc.; 17 tools total (added `activate`, `wait_stable`, `grant_permission`, `revoke_permission`, `clear_app_data`, `list_permissions`).
 - **Observability**: `DEBUG_BAREMOBILE=1` mirrors every adb/wda call to stderr with channel, label, outcome, latency.
+
+## Security hardening (Unreleased — follow-up audit)
+
+Second-pass audit after the types-compliance work. Scope was the local control surface (no server/DB/web). Command-injection sinks re-confirmed clean (array-arg `execFile` everywhere; `interact.js` coerces coords + double-escapes `type()` text). Findings fixed:
+
+- **Daemon auth (Medium)**: `/command` now requires a per-session `randomBytes(32)` token (constant-time compare) carried in the `0600` `session.json`; client sends it transparently. Closes cross-uid device control — loopback is reachable by any local uid, so the prior `0600`-only gate (v0.8.1) protected port *discovery* but not the port itself. `/command` also caps the request body at 1 MiB (`413`).
+- **Predictable `/tmp` (Low)**: `ios-cert.js` (`ios-signed`) and `setup.js` (`ios-pids`, fed to `process.kill`) moved to `~/.config/baremobile/`; Android cmdline-tools download/extract now uses an owner-only `mkdtemp` dir (was fixed `/tmp`, then executed → TOCTOU). Brings the last stragglers in line with the `ios.js`/`wifi-persist.js` per-user decision.
+- **Hygiene (Low)**: two real device UDIDs redacted from `ios/aria-kba-old/wda-ios-automation-poc.md` (still in history — identifiers, not secrets).
+
+Regression tests: `test/unit/security-validation.test.js` (16) + updated `loadPids` tests. Suite 301 → 317, all green; `tsc --noEmit` clean.
 
 ## What's built
 

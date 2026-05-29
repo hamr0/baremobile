@@ -110,11 +110,11 @@ Node.js usbmuxd client (~130 lines, zero deps) that speaks the binary protocol d
 
 `src/ios.js connect()` now tries three strategies in order:
 
-1. **Cached WiFi** — reads `/tmp/baremobile-ios-wifi`, tries direct HTTP to WDA
+1. **Cached WiFi** — reads `~/.config/baremobile/ios-wifi` (per-user, validated with `isValidIpv4()`), tries direct HTTP to WDA
 2. **USB discovery** — uses `usbmux.forward()` to create TCP proxy, queries WDA `/status` for WiFi IP, caches it, switches to WiFi direct
 3. **Fallback** — `localhost:8100` (legacy manual port forward)
 
-WiFi cache file (`/tmp/baremobile-ios-wifi`) persists across reconnects. Cleared on USB re-discovery if IP changes.
+WiFi cache file (`~/.config/baremobile/ios-wifi`) persists across reconnects. Cleared on USB re-discovery if IP changes.
 
 ### unlock() improvements
 
@@ -139,7 +139,7 @@ iOS module was working but required throwaway scripts to use. Phase 3.3 wired it
 
 ### Dual-platform MCP
 
-`mcp-server.js` holds two page slots (`_pages.android` and `_pages.ios`), lazy-created on first use. Every tool accepts optional `platform: "ios"` param (default: android). Dynamic import selects `src/ios.js` or `src/index.js`. On iOS connect, `checkIosCert()` checks `/tmp/baremobile-ios-signed` — if >6 days old or missing, warning prepended to first snapshot.
+`mcp-server.js` holds two page slots (`_pages.android` and `_pages.ios`), lazy-created on first use. Every tool accepts optional `platform: "ios"` param (default: android). Dynamic import selects `src/ios.js` or `src/index.js`. On iOS connect, `checkIosCert()` checks `~/.config/baremobile/ios-signed` — if >6 days old or missing, warning prepended to first snapshot.
 
 ### CLI --platform flag
 
@@ -154,7 +154,7 @@ iOS module was working but required throwaway scripts to use. Phase 3.3 wired it
 ### Cert tracking
 
 - `baremobile ios resign` — interactive AltServer signing (Apple ID + password + 2FA prompts)
-- `src/ios-cert.js` (~25 lines) — `checkIosCert()` reads `/tmp/baremobile-ios-signed` mtime, warns at >6 days
+- `src/ios-cert.js` (~25 lines) — `checkIosCert()` reads `~/.config/baremobile/ios-signed` mtime, warns at >6 days
 - `recordIosSigning()` writes timestamp after successful signing
 
 ### Files changed

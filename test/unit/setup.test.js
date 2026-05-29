@@ -5,8 +5,10 @@
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
-import { writeFileSync, unlinkSync, statSync } from 'node:fs';
-import { detectHost, which, parseTunnelOutput, parseWdaBundleFromJson, loadPids, findSdkRoot, findSdkTool } from '../../src/setup.js';
+import { writeFileSync, statSync, mkdtempSync, mkdirSync, rmSync } from 'node:fs';
+import { join } from 'node:path';
+import { tmpdir } from 'node:os';
+import { detectHost, which, parseTunnelOutput, parseWdaBundleFromJson, findSdkRoot, findSdkTool } from '../../src/setup.js';
 
 describe('detectHost', () => {
   it('returns an object with os and pkg', () => {
@@ -93,31 +95,49 @@ describe('parseWdaBundleFromJson', () => {
 });
 
 describe('loadPids', () => {
-  const PID_FILE = '/tmp/baremobile-ios-pids';
+  // PID_FILE now lives at ~/.config/baremobile/ios-pids (moved off the
+  // predictable, world-writable /tmp path — see security-validation.test.js).
+  // Redirect $HOME and re-import so the module's homedir()-derived path is
+  // hermetic and we never touch the developer's real config.
+  async function withRedirectedHome(fn) {
+    const home = mkdtempSync(join(tmpdir(), 'bm-home-'));
+    const prev = process.env.HOME;
+    process.env.HOME = home;
+    try {
+      const mod = await import(`../../src/setup.js?h=${encodeURIComponent(home)}`);
+      const pidFile = join(home, '.config', 'baremobile', 'ios-pids');
+      mkdirSync(join(home, '.config', 'baremobile'), { recursive: true });
+      await fn(mod, pidFile);
+    } finally {
+      process.env.HOME = prev;
+      rmSync(home, { recursive: true, force: true });
+    }
+  }
 
-  it('parses 2-line format with RSD', () => {
-    writeFileSync(PID_FILE, '1234 5678 9012\nfd7a:e21d:8e41::1 61024');
-    const result = loadPids();
-    assert.deepEqual(result, {
-      tunnel: 1234, wda: 5678, fwd: 9012,
-      rsdAddr: 'fd7a:e21d:8e41::1', rsdPort: '61024',
+  it('parses 2-line format with RSD', async () => {
+    await withRedirectedHome((mod, pidFile) => {
+      writeFileSync(pidFile, '1234 5678 9012\nfd7a:e21d:8e41::1 61024');
+      assert.deepEqual(mod.loadPids(), {
+        tunnel: 1234, wda: 5678, fwd: 9012,
+        rsdAddr: 'fd7a:e21d:8e41::1', rsdPort: '61024',
+      });
     });
-    unlinkSync(PID_FILE);
   });
 
-  it('parses legacy 1-line format with null RSD', () => {
-    writeFileSync(PID_FILE, '1234 5678 9012');
-    const result = loadPids();
-    assert.deepEqual(result, {
-      tunnel: 1234, wda: 5678, fwd: 9012,
-      rsdAddr: null, rsdPort: null,
+  it('parses legacy 1-line format with null RSD', async () => {
+    await withRedirectedHome((mod, pidFile) => {
+      writeFileSync(pidFile, '1234 5678 9012');
+      assert.deepEqual(mod.loadPids(), {
+        tunnel: 1234, wda: 5678, fwd: 9012,
+        rsdAddr: null, rsdPort: null,
+      });
     });
-    unlinkSync(PID_FILE);
   });
 
-  it('returns null when file missing', () => {
-    try { unlinkSync(PID_FILE); } catch { /* already gone */ }
-    assert.equal(loadPids(), null);
+  it('returns null when file missing', async () => {
+    await withRedirectedHome((mod) => {
+      assert.equal(mod.loadPids(), null);
+    });
   });
 });
 

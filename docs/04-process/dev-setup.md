@@ -413,7 +413,7 @@ baremobile ios teardown
 | iOS snapshot | `baremobile snapshot` | YAML tree with iOS elements (Cell, NavBar) |
 | iOS close | `baremobile close` | Session closed |
 | MCP dual-platform | `snapshot({platform: 'ios'})` via MCP | iOS tree; `snapshot()` → Android tree |
-| Cert warning | Delete `/tmp/baremobile-ios-signed`, call iOS MCP snapshot | Warning prepended |
+| Cert warning | Delete `~/.config/baremobile/ios-signed`, call iOS MCP snapshot | Warning prepended |
 | Setup wizard | `baremobile setup` → pick iOS | Guides through all steps |
 | Resign | `baremobile ios resign` | Prompts for creds, signs, records timestamp |
 

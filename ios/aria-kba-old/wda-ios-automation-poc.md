@@ -31,8 +31,8 @@
 - App-specific passwords don't work with GSA/SRP auth flow
 
 ### Two iPhones detected
-- **iPhone 13 mini** (primary target): UDID `00008110-000665682188201E`, iOS 26.3, iPhone14,4
-- **iPhone 8** (2FA device): UDID `aeeddcdfe9141cc768795cad434f828332c1e85d`, iOS 16.7.10, iPhone10,1
+- **iPhone 13 mini** (primary target): UDID `<redacted>`, iOS 26.3, iPhone14,4
+- **iPhone 8** (2FA device): UDID `<redacted>`, iOS 16.7.10, iPhone10,1
 
 ## Key Findings
 

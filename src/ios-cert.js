@@ -2,9 +2,15 @@
 // Free Apple ID certs expire after 7 days. This module checks the signing
 // timestamp and warns when re-signing is needed.
 
-import { statSync, writeFileSync } from 'node:fs';
+import { statSync, writeFileSync, mkdirSync } from 'node:fs';
+import { join } from 'node:path';
+import { homedir } from 'node:os';
 
-const SIGNED_FILE = '/tmp/baremobile-ios-signed';
+// Per-user dir, not shared /tmp: a predictable world-writable /tmp path lets
+// another local user pre-create/symlink it to redirect our write or suppress
+// the expiry warning. Mirrors wifi-persist.js / ios.js's location choice.
+const CONFIG_DIR = join(homedir(), '.config', 'baremobile');
+const SIGNED_FILE = join(CONFIG_DIR, 'ios-signed');
 const WARN_DAYS = 6;
 
 export function checkIosCert() {
@@ -21,5 +27,6 @@ export function checkIosCert() {
 }
 
 export function recordIosSigning() {
+  try { mkdirSync(CONFIG_DIR, { recursive: true }); } catch {}
   writeFileSync(SIGNED_FILE, new Date().toISOString());
 }

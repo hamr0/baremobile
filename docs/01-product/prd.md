@@ -385,7 +385,7 @@ Interactive setup for both platforms. `baremobile setup` detects what is already
 - Android: sub-menu with 4 modes — Emulator (SDK install + AVD creation + boot), USB (device detection with unauthorized/offline handling), WiFi (TCP/IP connect), Termux (on-device guide). `ensureAdb()` installs adb via package manager. `ensureSdk()` installs full SDK for emulator use. `findSdkRoot()` and `findSdkTool()` locate existing SDK installations.
 - iOS: check pymobiledevice3, USB device, developer mode, WDA installed, tunnel running, verify WDA connection. The Apple ID password is read via masked `promptSecret` (no terminal echo). Note: AltServer-Linux still receives it as a CLI arg, so it is briefly visible in `ps`/`/proc` during signing — inherent to the AltServer CLI (v0.8.1)
 - `restartWda()` — non-interactive WDA restart for auto-recovery. Two-tier: tier-1 reads stored RSD addr/port from PID file, restarts just WDA+forward in ~3s without pkexec; tier-2 falls back to full tunnel restart if RSD missing or tunnel dead. Called by MCP server on second iOS connection failure.
-- PID file (`/tmp/baremobile-ios-pids`) stores tunnel/WDA/forward PIDs on line 1, RSD addr/port on line 2. `loadPids()` is backward-compatible with legacy 1-line format.
+- PID file (`~/.config/baremobile/ios-pids`, per-user — not shared `/tmp`, since `loadPids()` feeds `process.kill()`) stores tunnel/WDA/forward PIDs on line 1, RSD addr/port on line 2. `loadPids()` is backward-compatible with legacy 1-line format.
 
 ### `src/daemon.js` -- CLI Daemon
 
@@ -393,7 +393,7 @@ Background process for CLI session mode. Holds device connection, buffers logcat
 
 - IPC via Unix domain socket
 - Logcat: spawns `adb logcat` in background, buffers entries, flushes to `.baremobile/logcat-*.json`
-- Session state in `.baremobile/session.json`, written `0600` — it carries the unauthenticated loopback control port, so it must not be readable by other local users (v0.8.1)
+- Session state in `.baremobile/session.json`, written `0600` — it carries the loopback control port and a per-session token. `/command` requires the token (constant-time compare); loopback is reachable by any local uid, so the token — not just port secrecy — is what gates device control to processes that can read our `0600` file. `/command` also caps the request body at 1 MiB and `/status` stays open as a liveness probe (Unreleased; supersedes the v0.8.1 "0600 is sufficient" note)
 
 ### `src/session-client.js` -- Session Client
 

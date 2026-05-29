@@ -9,10 +9,131 @@
 
 import { createServer } from 'node:http';
 import { spawn } from 'node:child_process';
+import { randomBytes, timingSafeEqual } from 'node:crypto';
 import { writeFileSync, mkdirSync, existsSync, readFileSync, unlinkSync, renameSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 
 const SESSION_FILE = 'session.json';
+
+// Header carrying the per-session token on /command requests.
+const TOKEN_HEADER = 'x-baremobile-token';
+
+// Cap on the /command request body. Commands are tiny JSON objects; this only
+// exists to stop a local client from streaming an unbounded body and OOMing
+// the daemon. 1 MiB is far above any legitimate command.
+const MAX_BODY = 1024 * 1024;
+
+/**
+ * Constant-time check of a request's token header against the daemon's
+ * session token.
+ *
+ * The /command endpoint is bound to 127.0.0.1, but loopback is reachable by
+ * *every* local uid — so binding alone does not gate device control to our
+ * own processes. The token lives only in the 0600 session.json, so requiring
+ * it ties the capability to "can read our session file" (the same boundary
+ * the 0600 mode already enforces) instead of to "can guess a 16-bit port".
+ *
+ * @param {import('node:http').IncomingMessage} req
+ * @param {string} token
+ * @returns {boolean}
+ */
+export function checkToken(req, token) {
+  const provided = req.headers[TOKEN_HEADER];
+  if (typeof provided !== 'string') return false;
+  const a = Buffer.from(provided);
+  const b = Buffer.from(token);
+  // timingSafeEqual throws on length mismatch — short-circuit first.
+  if (a.length !== b.length) return false;
+  return timingSafeEqual(a, b);
+}
+
+/**
+ * Build the daemon's HTTP server. Extracted from runDaemon() so the request
+ * path — token gate, body cap, dispatch — is testable without a live device.
+ *
+ * Routes:
+ *   GET  /status   — unauthenticated liveness probe. Intentional asymmetry:
+ *                    it leaks only pid/uptime (both discoverable via `ps`),
+ *                    while the capability surface (/command) is token-gated.
+ *   POST /command  — requires the x-baremobile-token header; body capped at
+ *                    MAX_BODY bytes; dispatches to handlers[command].
+ *
+ * @param {string} token
+ * @param {Record<string, (args?: any) => any>} handlers
+ * @returns {import('node:http').Server}
+ */
+export function createCommandServer(token, handlers) {
+  const server = createServer(async (req, res) => {
+    if (req.method === 'GET' && req.url === '/status') {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, pid: process.pid }));
+      return;
+    }
+
+    if (req.method !== 'POST' || req.url !== '/command') {
+      res.writeHead(404);
+      res.end('Not found');
+      return;
+    }
+
+    if (!checkToken(req, token)) {
+      res.writeHead(401, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Unauthorized' }));
+      return;
+    }
+
+    let body = '';
+    let received = 0;
+    let tooLarge = false;
+    for await (const chunk of req) {
+      received += chunk.length; // chunk is a Buffer — byte length, not UTF-16 units
+      if (received > MAX_BODY) { tooLarge = true; break; }
+      body += chunk;
+    }
+    if (tooLarge) {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Request body too large' }));
+      req.destroy();
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = JSON.parse(body);
+    } catch {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Invalid JSON' }));
+      return;
+    }
+
+    const { command, args } = parsed;
+    const handler = handlers[command];
+    if (!handler) {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: `Unknown command: ${command}` }));
+      return;
+    }
+
+    try {
+      const result = await handler(args || {});
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      // For the `close` command we must let the response fully flush before
+      // exiting — calling process.exit() on the next line races the socket
+      // teardown and the client sees ECONNRESET instead of `{ok: true}`.
+      if (command === 'close') {
+        res.end(JSON.stringify(result), () => {
+          server.close(() => process.exit(0));
+        });
+      } else {
+        res.end(JSON.stringify(result));
+      }
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: err.message }));
+    }
+  });
+  return server;
+}
 
 /**
  * Parse a timeout argument coming over the HTTP wire (always a string or
@@ -127,6 +248,10 @@ export async function runDaemon(opts, outputDir) {
   mkdirSync(absDir, { recursive: true });
 
   const platform = opts.platform || 'android';
+
+  // Per-session token gating /command. Written into the 0600 session.json so
+  // only processes that can read our session file can drive the device.
+  const token = randomBytes(32).toString('hex');
 
   // Connect to device — dynamic import based on platform
   const connectFn = platform === 'ios'
@@ -306,58 +431,8 @@ export async function runDaemon(opts, outputDir) {
     },
   };
 
-  // Start HTTP server on random port
-  const server = createServer(async (req, res) => {
-    if (req.method === 'GET' && req.url === '/status') {
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: true, pid: process.pid }));
-      return;
-    }
-
-    if (req.method !== 'POST' || req.url !== '/command') {
-      res.writeHead(404);
-      res.end('Not found');
-      return;
-    }
-
-    let body = '';
-    for await (const chunk of req) body += chunk;
-
-    let parsed;
-    try {
-      parsed = JSON.parse(body);
-    } catch {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: 'Invalid JSON' }));
-      return;
-    }
-
-    const { command, args } = parsed;
-    const handler = handlers[command];
-    if (!handler) {
-      res.writeHead(400, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: `Unknown command: ${command}` }));
-      return;
-    }
-
-    try {
-      const result = await handler(args || {});
-      res.writeHead(200, { 'Content-Type': 'application/json' });
-      // For the `close` command we must let the response fully flush before
-      // exiting — calling process.exit() on the next line races the socket
-      // teardown and the client sees ECONNRESET instead of `{ok: true}`.
-      if (command === 'close') {
-        res.end(JSON.stringify(result), () => {
-          server.close(() => process.exit(0));
-        });
-      } else {
-        res.end(JSON.stringify(result));
-      }
-    } catch (err) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ ok: false, error: err.message }));
-    }
-  });
+  // Start HTTP server on a random loopback port.
+  const server = createCommandServer(token, handlers);
 
   await new Promise((resolve) => {
     server.listen(0, '127.0.0.1', () => resolve(undefined));
@@ -374,6 +449,7 @@ export async function runDaemon(opts, outputDir) {
     port,
     pid: process.pid,
     platform,
+    token,
     startedAt: new Date().toISOString(),
   }));
 

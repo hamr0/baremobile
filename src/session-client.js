@@ -13,7 +13,7 @@ const SESSION_FILE = 'session.json';
 
 /**
  * Read session.json from the output directory.
- * @returns {{ port: number, pid: number, startedAt: string } | null}
+ * @returns {{ port: number, pid: number, token: string, startedAt: string } | null}
  */
 export function readSession(outputDir) {
   const sessionPath = join(resolve(outputDir), SESSION_FILE);
@@ -53,7 +53,11 @@ export async function sendCommand(command, args, outputDir) {
   try {
     res = await fetch(`http://127.0.0.1:${session.port}/command`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        // Token from the 0600 session.json — daemon rejects /command without it.
+        'x-baremobile-token': session.token,
+      },
       body: JSON.stringify({ command, args }),
       signal: AbortSignal.timeout(60000),
     });
