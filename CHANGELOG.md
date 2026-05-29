@@ -7,6 +7,7 @@
 - **`ci.yml`** — push/PR workflow gating on `npm ci → typecheck → build:types → test`. No lint step (tsc's `checkJs` + `strictNullChecks` covers the bug class).
 
 ### Changed
+- **CI:** the publish workflow now polls the npm registry for ~2 min (was ~15s; `--prefer-online` skips npm's view cache) and accepts an `exit 0` publish even if the registry hasn't reflected it yet, so a successful-but-slow-to-reflect publish no longer reports a false failure.
 - **`publish.yml` is now manual-only (`workflow_dispatch`) — npm OIDC trusted publishing with provenance, idempotent, and verifies the registry end-state.** Now also typechecks before publishing; `prepublishOnly` builds the `.d.ts` into the tarball.
 - JSDoc filled in / tightened across `src/` so `tsc --noEmit` (checkJs + strictNullChecks) passes clean. No runtime behavior changed — the 301-test suite is unchanged and still green.
 
