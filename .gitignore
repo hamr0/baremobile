@@ -7,3 +7,8 @@ node_modules/
 .aurora/
 .barebrowse/
 AltServerData/
+
+# Agent / IDE scratch — never commit (per hamr0 LIBRARY_CONVENTIONS §7)
+.claude/
+.litectx/
+.idea/
