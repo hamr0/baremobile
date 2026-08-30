@@ -6,3 +6,6 @@
 ## [2026-08-30] index-flat | 27 row(s) (17 product, 7 logs, 3 archive)
 ## [2026-08-30] validate | FAIL — 1 gate failure(s)
 ## [2026-08-30] validate | PASS — 0 gate failure(s)
+## [2026-08-30] index-flat | 27 row(s) (17 product, 7 logs, 3 archive)
+## [2026-08-30] apply-reorg | moved 0, skipped 0, 0 oversized split candidate(s), 0 link(s) rewritten, 0 sync failure(s), 0 empty dir(s) removed, CLAUDE.md updated: true
+## [2026-08-30] reorg | discover+apply-reorg+lint over 22 doc(s), due reported
