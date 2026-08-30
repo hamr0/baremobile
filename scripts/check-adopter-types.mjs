@@ -34,13 +34,19 @@
 //   HEAD as shipped -> optional-in-fact fired on iOS-only page.unlock(pin), a real
 //     defect no parity check could ever see; fixed in the same commit
 //
+// RESIDUAL GAP: rule 4 reads `x || y` as "the body handles x being absent". It
+// would misread a fallback that itself throws (`pin || required()`) as a default.
+// No such code exists in either page today; left unguarded deliberately, because
+// the failure mode is a visible false positive a human dismisses, not a wrong
+// type shipped to an adopter.
+//
 // RESIDUAL GAP: rules 3/4 give an absolute notion of correct for parameter
 // optionality — the defect class that actually shipped twice. A return type that
 // is wrong identically on both platforms is still only caught where `tsc` itself
 // catches it (a JSDoc @returns that contradicts the returned expression); a lie
 // laundered through a cast, as `screenshot()` once was, is not detected here.
 import ts from 'typescript';
-import { resolve } from 'node:path';
+import { resolve, sep } from 'node:path';
 import { existsSync } from 'node:fs';
 
 const typesDir = resolve(process.argv[2] ?? 'types');
@@ -216,8 +222,17 @@ for (const { file, node } of pageLiterals) {
     if (!fn?.body || !fn.parameters.length) continue;
     covered++;
 
-    const byName = new Map(
-      fn.parameters.filter(p => ts.isIdentifier(p.name)).map(p => [p.name.text, p]));
+    // Key parameters by SYMBOL, not by name text. A nested closure is free to
+    // shadow a parameter name (`list.forEach(duration => ...)`), and a text
+    // match would blame the outer parameter for what the inner one does —
+    // verified: it produced a false positive on rule 3 and masked a real
+    // finding on rule 4 before this was symbol-based.
+    const paramOf = new Map();
+    for (const p of fn.parameters) {
+      if (!ts.isIdentifier(p.name)) continue;
+      const sym = srcChecker.getSymbolAtLocation(p.name);
+      if (sym) paramOf.set(sym, p);
+    }
 
     // RULE 3 — forwarded-default: a parameter handed straight to another of our
     // functions, at a position that function defaults, but declared required
@@ -229,7 +244,12 @@ for (const { file, node } of pageLiterals) {
         if (sig) {
           n.arguments.forEach((arg, i) => {
             if (!ts.isIdentifier(arg)) return;
-            const wp = byName.get(arg.text);
+            // A spread earlier in the call contributes an unknown number of
+            // arguments, so this argument's syntactic index is no longer the
+            // callee's parameter index. Nothing can be concluded — say so by
+            // skipping, rather than comparing against the wrong parameter.
+            if (n.arguments.some((a, j) => j < i && ts.isSpreadElement(a))) return;
+            const wp = paramOf.get(srcChecker.getSymbolAtLocation(arg));
             if (!wp || optionalDecl(wp)) return;
             const cp = sig.getParameters()[i];
             const cd = cp && (cp.valueDeclaration ?? cp.declarations?.[0]);
@@ -237,7 +257,7 @@ for (const { file, node } of pageLiterals) {
             // Only functions we own. Forwarding into a builtin (`Number(ref)`)
             // says nothing about our contract — measured: that exclusion is
             // what took this rule from 1 false positive to 0 on the real tree.
-            if (!cd.getSourceFile().fileName.startsWith(srcDir)) return;
+            if (!cd.getSourceFile().fileName.startsWith(srcDir + sep)) return;
             findings.push({
               rule: 'forwarded-default',
               where: `page.${name}() in ${short}`,
@@ -257,19 +277,23 @@ for (const { file, node } of pageLiterals) {
     // RULE 4 — optional-in-fact: a required parameter whose every use in the
     // body sits on the left of `||` / `??`. The body already says what happens
     // when it is absent; the declaration should say it may be absent.
-    for (const wp of fn.parameters) {
-      if (!ts.isIdentifier(wp.name) || optionalDecl(wp)) continue;
+    for (const [sym, wp] of paramOf) {
+      if (optionalDecl(wp)) continue;
+      // Carry the parent down the walk instead of reading `node.parent`. Parent
+      // pointers exist here only as a side effect of having built the type
+      // checker; depending on that would break silently if this ever ran before
+      // the checker was created.
       const uses = [];
-      const collect = (n) => {
-        if (ts.isIdentifier(n) && n.text === wp.name.text && n.parent !== wp) uses.push(n);
-        ts.forEachChild(n, collect);
+      const collect = (n, parent) => {
+        if (ts.isIdentifier(n) && srcChecker.getSymbolAtLocation(n) === sym) uses.push({ n, parent });
+        ts.forEachChild(n, (c) => collect(c, n));
       };
-      collect(fn.body);
+      collect(fn.body, undefined);
       if (!uses.length) continue;
-      const fallbackOnly = uses.every(u =>
-        ts.isBinaryExpression(u.parent) && u.parent.left === u &&
-        (u.parent.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
-         u.parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken));
+      const fallbackOnly = uses.every(({ n, parent }) =>
+        parent && ts.isBinaryExpression(parent) && parent.left === n &&
+        (parent.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+         parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken));
       if (fallbackOnly) {
         findings.push({
           rule: 'optional-in-fact',
