@@ -95,7 +95,7 @@ DisablePlugins = input
 - `test/ios/ble-hid-poc.py` — keyboard+mouse composite, pairing agent, debug logging
 - `test/ios/ble-hid.test.js` — python3 (not 3.12)
 - `baremobile.context.md` — keyboard proven, LE-only requirement
-- `docs/product/prd.md` — Phase 2.8 keyboard PROVEN, key requirements
+- `docs/archive/prd.md` — Phase 2.8 keyboard PROVEN, key requirements
 - `docs/product/customer-guide.md` — Module 4 updated, keyboard working
 - `docs/product/system-state.md` — BLE HID keyboard proven
 - `docs/product/ios-exploration.md` — spike step 2 done

@@ -378,5 +378,5 @@ Things your agent doesn't have to think about:
 ## Links
 
 - [Full API reference](../../README.md#api)
-- [Product roadmap](prd.md)
+- [Product roadmap](../archive/prd.md)
 - [Dev setup guide](dev-setup.md)

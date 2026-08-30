@@ -14,7 +14,7 @@
 ### 01-product/ — What the product must do
 | File | What |
 |------|------|
-| [prd.md](product/prd.md) | Blueprint — full architecture, module details, verified flows, roadmap, design decisions |
+| [prd.md](archive/prd.md) | Blueprint — full architecture, module details, verified flows, roadmap, design decisions |
 
 ### 02-features/ — How features are designed
 | File | What |
