@@ -2,7 +2,7 @@
 
 ## 2026-05-18 — v0.8.0: Code-review fix plan landed across 7 commits
 
-Plan: `docs/02-features/code-review-fixes.md`.
+Plan: `docs/logs/code-review-fixes.md`.
 
 Commits (oldest first, all on `main`):
 

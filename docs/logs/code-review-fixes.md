@@ -105,10 +105,10 @@ Goal: ship the agent-quality wins that came out of the review. Each is independe
 For each shipped phase:
 
 1. **CHANGELOG.md** — one entry per fix/enhancement, grouped under `### Fixed` / `### Added`. Reference the finding number from this doc.
-2. **docs/03-logs/bug-log.md** — append entries for findings 1.1–2.7 with root cause + fix.
-3. **docs/03-logs/decisions-log.md** — append entries for structural choices (typed errors, selector-based actions, atomic session.json).
-4. **docs/03-logs/implementation-log.md** — what landed when.
-5. **docs/03-logs/validation-log.md** — test counts before/after, new test files.
+2. **docs/logs/bug-log.md** — append entries for findings 1.1–2.7 with root cause + fix.
+3. **docs/logs/decisions-log.md** — append entries for structural choices (typed errors, selector-based actions, atomic session.json).
+4. **docs/logs/implementation-log.md** — what landed when.
+5. **docs/logs/validation-log.md** — test counts before/after, new test files.
 6. **MEMORY.md** — refresh test count + file count + tool count once Phase 4 lands.
 7. **package.json** — bump `version`. Phase 1–3 → `0.7.13`. Phase 4 → `0.8.0`.
 8. Tag the release in git.

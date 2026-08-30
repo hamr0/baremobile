@@ -289,7 +289,7 @@ termux-vibrate                 # device should vibrate
 
 ## iOS
 
-> QA only — USB required on Linux. See [ios-exploration.md](../00-context/ios-exploration.md) for full research.
+> QA only — USB required on Linux. See [ios-exploration.md](ios-exploration.md) for full research.
 
 ### Quick start
 

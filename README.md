@@ -136,7 +136,7 @@ npx baremobile setup   # Android: emulator, USB, WiFi, or Termux
 3. Connect device via USB, tap "Allow" on the prompt
 4. Verify -- `adb devices` should show your device
 
-Android 10+ required (2019 or newer). For WiFi, Termux, emulator, and iOS setup details, see [docs/customer-guide.md](docs/customer-guide.md).
+Android 10+ required (2019 or newer). For WiFi, Termux, emulator, and iOS setup details, see [docs/product/customer-guide.md](docs/product/customer-guide.md).
 
 **WiFi auto-reconnect:** After WiFi setup, the device IP is saved. If the connection drops (DHCP reassignment, ADB restart), `connect()` automatically reconnects -- no manual re-setup needed.
 

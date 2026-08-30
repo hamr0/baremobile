@@ -31,8 +31,8 @@
 
 ### Modified
 - `test/ios/ble-hid-poc.py` — LED Report ID fix (0→1), Appearance fix (0x03C1→0x03C0), multi-step mouse movement
-- `docs/01-product/prd.md` — Phase 2.8 updated: combo proven, mouse proven, integration proven, critical requirements table
-- `docs/00-context/ios-exploration.md` — spike steps updated, bug table added, iOS behaviors documented
+- `docs/product/prd.md` — Phase 2.8 updated: combo proven, mouse proven, integration proven, critical requirements table
+- `docs/product/ios-exploration.md` — spike steps updated, bug table added, iOS behaviors documented
 
 ### Created
 - `test/ios/integration.test.js` — 6 tests: launch Settings, BLE HID connect, home cursor, tap Wi-Fi, verify change, type text

@@ -327,7 +327,7 @@ The agent reads the plan, launches the app, follows the steps using snapshot + t
 
 All modules are also available via CLI (`npx baremobile`) and MCP server. The CLI starts a background daemon that holds a device session. For iOS, all MCP tools accept `platform: "ios"`.
 
-See the [README](../README.md) for the full CLI command reference.
+See the [README](../../README.md) for the full CLI command reference.
 
 ---
 
@@ -377,6 +377,6 @@ Things your agent doesn't have to think about:
 
 ## Links
 
-- [Full API reference](../README.md#api)
-- [Product roadmap](01-product/prd.md)
-- [Dev setup guide](04-process/dev-setup.md)
+- [Full API reference](../../README.md#api)
+- [Product roadmap](prd.md)
+- [Dev setup guide](dev-setup.md)
