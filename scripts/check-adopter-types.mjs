@@ -13,14 +13,32 @@
 // Exits non-zero with a per-finding explanation.
 //
 // Validated against real history, not a fixture built to pass:
-//   c006cac (pre-v0.11.0) -> bare-object fires 4x on connect()/translateWda()
+//   c006cac (pre-v0.11.0) -> bare-object fires 3x on connect()/translateWda()
 //   c4d60ce (pre-v0.11.1) -> platform-parity fires on page.swipe(), 5 vs 4
 //   HEAD with the screenshot fix reverted -> platform-parity fires on the return
 //   HEAD as shipped -> 0 findings
 //
-// KNOWN GAP, stated rather than papered over: platform-parity compares the two
-// pages against EACH OTHER, so a declaration that is wrong on BOTH platforms in
-// the same way is invisible to it. It catches divergence, not agreed-upon error.
+// platform-parity alone was a differential check: it compared the two pages
+// against EACH OTHER, so it was blind to (a) a declaration wrong the same way on
+// both platforms and (b) the 13 of 32 page members that exist on one platform
+// only and therefore have no counterpart to disagree with. Rules 3 and 4 below
+// fix that by checking each page member against its own source — the function it
+// forwards to, and what its own body does with the argument — which gives a
+// notion of "wrong" rather than only "these two disagree".
+//
+// Rules 3/4 validated the same way:
+//   c4d60ce (pre-v0.11.1) -> forwarded-default fires on page.swipe(), from source
+//     alone, with no cross-platform comparison in play
+//   HEAD with the swipe default removed on BOTH pages -> rules 1+2 report "OK",
+//     forwarded-default still fires (the exact blind spot above)
+//   HEAD as shipped -> optional-in-fact fired on iOS-only page.unlock(pin), a real
+//     defect no parity check could ever see; fixed in the same commit
+//
+// RESIDUAL GAP: rules 3/4 give an absolute notion of correct for parameter
+// optionality — the defect class that actually shipped twice. A return type that
+// is wrong identically on both platforms is still only caught where `tsc` itself
+// catches it (a JSDoc @returns that contradicts the returned expression); a lie
+// laundered through a cast, as `screenshot()` once was, is not detected here.
 import ts from 'typescript';
 import { resolve } from 'node:path';
 import { existsSync } from 'node:fs';
@@ -143,6 +161,128 @@ if (android && ios) {
   }
 }
 
+// ---- RULES 3 & 4: every page member, checked against its own source -----
+// Rules 1 and 2 read the built .d.ts. These two read `src/` instead, because
+// the evidence they need — what a wrapper forwards to, and what its body does
+// when an argument is missing — exists only in the body, which a .d.ts drops.
+const srcDir = resolve(typesDir, '..', 'src');
+const srcFiles = ['index.js', 'ios.js'].map(f => resolve(srcDir, f));
+const srcProgram = ts.createProgram(srcFiles, {
+  target: ts.ScriptTarget.ES2022,
+  module: ts.ModuleKind.NodeNext,
+  moduleResolution: ts.ModuleResolutionKind.NodeNext,
+  allowJs: true, checkJs: true, strict: true, skipLibCheck: true, noEmit: true,
+});
+const srcChecker = srcProgram.getTypeChecker();
+
+// The page object is the literal carrying a `platform` key — the one thing both
+// pages declare and nothing else in these files does.
+const pageLiterals = [];
+for (const file of srcFiles) {
+  const sf = srcProgram.getSourceFile(file);
+  if (!sf) { console.error(`missing ${file}`); process.exit(2); }
+  const visit = (n) => {
+    if (ts.isObjectLiteralExpression(n) &&
+        n.properties.some(p => p.name && ts.isIdentifier(p.name) && p.name.text === 'platform')) {
+      pageLiterals.push({ file, node: n });
+    }
+    ts.forEachChild(n, visit);
+  };
+  visit(sf);
+}
+if (pageLiterals.length !== 2) {
+  console.error(`expected 2 page literals (one per platform), found ${pageLiterals.length} — `
+              + `the anchor for rules 3/4 has moved; fix the checker rather than the count.`);
+  process.exit(2);
+}
+
+// Optional three ways: `p?`, `p = x`, `...rest` — or, in JS source, a bracketed
+// JSDoc tag (`@param {T} [p]`), which is how these files say it.
+const optionalDecl = (d) => !!d && (
+  !!d.questionToken || !!d.initializer || !!d.dotDotDotToken ||
+  ts.getJSDocParameterTags(d).some(t => t.isBracketed));
+let members = 0, covered = 0;
+
+for (const { file, node } of pageLiterals) {
+  const short = file.split('/').pop();
+  for (const prop of node.properties) {
+    if (!prop.name || !ts.isIdentifier(prop.name)) continue;
+    const name = prop.name.text;
+    members++;
+    const fn = ts.isMethodDeclaration(prop) ? prop
+      : (ts.isPropertyAssignment(prop) &&
+         (ts.isArrowFunction(prop.initializer) || ts.isFunctionExpression(prop.initializer)))
+        ? prop.initializer : null;
+    if (!fn?.body || !fn.parameters.length) continue;
+    covered++;
+
+    const byName = new Map(
+      fn.parameters.filter(p => ts.isIdentifier(p.name)).map(p => [p.name.text, p]));
+
+    // RULE 3 — forwarded-default: a parameter handed straight to another of our
+    // functions, at a position that function defaults, but declared required
+    // here. This is exactly the v0.11.1 `swipe()` defect, caught without
+    // reference to the other platform.
+    const walk = (n) => {
+      if (ts.isCallExpression(n)) {
+        const sig = srcChecker.getResolvedSignature(n);
+        if (sig) {
+          n.arguments.forEach((arg, i) => {
+            if (!ts.isIdentifier(arg)) return;
+            const wp = byName.get(arg.text);
+            if (!wp || optionalDecl(wp)) return;
+            const cp = sig.getParameters()[i];
+            const cd = cp && (cp.valueDeclaration ?? cp.declarations?.[0]);
+            if (!cd || !ts.isParameter(cd) || !optionalDecl(cd)) return;
+            // Only functions we own. Forwarding into a builtin (`Number(ref)`)
+            // says nothing about our contract — measured: that exclusion is
+            // what took this rule from 1 false positive to 0 on the real tree.
+            if (!cd.getSourceFile().fileName.startsWith(srcDir)) return;
+            findings.push({
+              rule: 'forwarded-default',
+              where: `page.${name}() in ${short}`,
+              detail: `parameter \`${arg.text}\` is passed to \`${n.expression.getText()}\` at `
+                    + `position ${i}, which defaults it (\`${cd.getText()}\`) — but the wrapper `
+                    + `restates it without a default, so adopters are forced to supply an `
+                    + `argument the implementation would have filled in. Give the wrapper the `
+                    + `same default.`,
+            });
+          });
+        }
+      }
+      ts.forEachChild(n, walk);
+    };
+    walk(fn.body);
+
+    // RULE 4 — optional-in-fact: a required parameter whose every use in the
+    // body sits on the left of `||` / `??`. The body already says what happens
+    // when it is absent; the declaration should say it may be absent.
+    for (const wp of fn.parameters) {
+      if (!ts.isIdentifier(wp.name) || optionalDecl(wp)) continue;
+      const uses = [];
+      const collect = (n) => {
+        if (ts.isIdentifier(n) && n.text === wp.name.text && n.parent !== wp) uses.push(n);
+        ts.forEachChild(n, collect);
+      };
+      collect(fn.body);
+      if (!uses.length) continue;
+      const fallbackOnly = uses.every(u =>
+        ts.isBinaryExpression(u.parent) && u.parent.left === u &&
+        (u.parent.operatorToken.kind === ts.SyntaxKind.BarBarToken ||
+         u.parent.operatorToken.kind === ts.SyntaxKind.QuestionQuestionToken));
+      if (fallbackOnly) {
+        findings.push({
+          rule: 'optional-in-fact',
+          where: `page.${name}() in ${short}`,
+          detail: `parameter \`${wp.name.text}\` is used only as \`${uses[0].parent.getText().split('\n')[0]}\` — `
+                + `the body already defines the behaviour when it is absent, yet the declaration `
+                + `forces every adopter to pass it. Mark it optional (\`@param {T} [${wp.name.text}]\`).`,
+        });
+      }
+    }
+  }
+}
+
 for (const f of findings) {
   console.log(`${f.rule}: ${f.where}\n    ${f.detail}\n`);
 }
@@ -151,4 +291,6 @@ if (findings.length) {
   console.log(`${findings.length} adopter-visible declaration defect(s) — see above.`);
   process.exit(1);
 }
-console.log('adopter-visible declarations OK (bare-object, platform-parity).');
+console.log(`adopter-visible declarations OK (bare-object, platform-parity, `
+          + `forwarded-default, optional-in-fact) — ${covered} of ${members} page members `
+          + `carry parameters and were checked against their own source.`);

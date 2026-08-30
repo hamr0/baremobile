@@ -573,6 +573,10 @@ export async function connect(opts = {}) {
       await wdaPost('/wda/homescreen');
     },
 
+    /**
+     * Unlock the device, entering a passcode if iOS asks for one.
+     * @param {string|null} [pin] - passcode to use; defaults to the one given to connect()
+     */
     async unlock(pin) {
       const locked = await wdaGet('/wda/locked');
       if (!locked.value) return;
