@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.11.1 — 2026-08-30
+
+### Fixed
+
+- **`page.swipe()` on Android forced a 5th argument that neither the runtime nor the iOS page requires.** The Android page wrapper omitted a default for `duration`, so the generated declaration was `swipe(x1, y1, x2, y2, duration: any)` — required — while iOS declared `duration?: number` and `interact.swipe()` has defaulted it to `300` all along. The idiomatic `page.swipe(100, 900, 100, 300)` therefore failed to compile on Android with `TS2554: Expected 5 arguments, but got 4`, and adopters had to pass a duration they had no reason to choose. The wrapper now carries the same `= 300` default. Declaration-only: verified at the process boundary that both the old call shape (`duration` → `undefined`) and the new one issue the identical `input swipe 100 900 100 300 300`, so nothing about the gesture changes. Found via the same adopter-gate method as the v0.11.0 type fixes: green after, `TS2554` before. 321 tests unchanged and green.
+
 ## 0.11.0 — 2026-08-30
 
 ### Added

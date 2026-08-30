@@ -117,7 +117,9 @@ export async function connect(opts = {}) {
       await interact.press(key, adbOpts);
     },
 
-    async swipe(x1, y1, x2, y2, duration) {
+    // `duration` carries the same default as interact.swipe (and as the iOS
+    // page), so the declared type makes it optional for adopters too.
+    async swipe(x1, y1, x2, y2, duration = 300) {
       await interact.swipe(x1, y1, x2, y2, duration, adbOpts);
     },
 
