@@ -1,3 +1,10 @@
+---
+type: reference
+title: Vision
+status: stable
+contract: docs/product/prd.md
+---
+
 # Vision
 
 ## What baremobile is
@@ -15,7 +22,7 @@ AI agents need to control phones the way humans do -- same device, same apps, sa
 - Not a test framework (no assertions, no test runner)
 - Not a screen recorder or scraper
 - Not an Appium replacement (no WebDriver protocol)
-- Not iOS (see `00-context/ios-exploration.md` for why)
+- Not iOS (see `docs/product/ios-exploration.md` for why)
 
 ## Core principles
 

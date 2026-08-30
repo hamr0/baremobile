@@ -2,7 +2,7 @@
 type: reference
 title: Module Reference
 status: stable
-sources: [docs/archive/prd.md]
+contract: docs/product/prd.md
 ---
 
 # Module Reference

@@ -1,3 +1,10 @@
+---
+type: reference
+title: Research & Feasibility
+status: stable
+contract: docs/product/prd.md
+---
+
 # baremobile — Research & Feasibility
 
 ## Platform Feasibility

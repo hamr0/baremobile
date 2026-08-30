@@ -2,7 +2,7 @@
 type: reference
 title: Platform Support - Android and iOS
 status: stable
-sources: [docs/archive/prd.md]
+contract: docs/product/prd.md
 ---
 
 # Platform Support

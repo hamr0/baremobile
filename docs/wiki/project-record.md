@@ -2,7 +2,7 @@
 type: reference
 title: Design Decisions, Roadmap, and Comparisons
 status: stable
-sources: [docs/archive/prd.md]
+contract: docs/product/prd.md
 ---
 
 # Project Record

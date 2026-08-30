@@ -1,3 +1,10 @@
+---
+type: reference
+title: Definition of Done
+status: stable
+contract: docs/product/prd.md
+---
+
 # Definition of Done
 
 A feature or phase is "done" when:
@@ -15,9 +22,9 @@ A feature or phase is "done" when:
 - [ ] Edge cases covered (error messages, missing refs, invalid input)
 
 ## Documentation
-- [ ] `01-product/prd.md` (blueprint) updated — module details, verified flows, roadmap status
+- [ ] `docs/product/prd.md` (the product contract) updated — module details, verified flows, roadmap status
 - [ ] `baremobile.context.md` updated — agent integration patterns
-- [ ] `04-process/testing.md` updated — test counts, new test descriptions
+- [ ] `docs/product/dev-setup.md` updated — test counts, new test descriptions
 - [ ] `CHANGELOG.md` updated — what changed, what was verified
 - [ ] `README.md` updated if public API changed
 

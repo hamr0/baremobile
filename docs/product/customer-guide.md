@@ -1,3 +1,10 @@
+---
+type: reference
+title: Customer Guide
+status: stable
+contract: docs/product/prd.md
+---
+
 # baremobile — Customer Guide
 
 > Control any phone from code. Android for all use cases, iOS for QA/testing.

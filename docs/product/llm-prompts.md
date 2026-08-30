@@ -1,3 +1,10 @@
+---
+type: reference
+title: LLM Integration Prompts
+status: stable
+contract: docs/product/prd.md
+---
+
 # LLM Integration Prompts
 
 ## Agent system prompt (for agents using baremobile)

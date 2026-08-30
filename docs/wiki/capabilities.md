@@ -2,7 +2,7 @@
 type: reference
 title: Agent Capabilities and Limitations
 status: stable
-sources: [docs/archive/prd.md]
+contract: docs/product/prd.md
 ---
 
 # Agent Capabilities and Limitations

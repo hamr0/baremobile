@@ -1,3 +1,10 @@
+---
+type: reference
+title: Assumptions, Constraints & Risks
+status: stable
+contract: docs/product/prd.md
+---
+
 # Assumptions, Constraints & Risks
 
 ## Assumptions

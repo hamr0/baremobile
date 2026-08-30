@@ -1,3 +1,10 @@
+---
+type: reference
+title: Development Setup & Testing
+status: stable
+contract: docs/product/prd.md
+---
+
 # Development Setup & Testing
 
 > Single reference for all prerequisites, environment setup, and tests — split by platform.
@@ -8,7 +15,7 @@
 node --test test/unit/*.test.js test/integration/*.test.js
 ```
 
-176 tests, 13 test files, zero test dependencies. Integration tests auto-skip when no ADB device is available.
+321 tests, zero test dependencies. Integration tests auto-skip when no ADB device is available.
 
 ```
           ┌─────────┐
@@ -18,7 +25,7 @@ node --test test/unit/*.test.js test/integration/*.test.js
           │ Integr. │  26 tests — real device, full pipeline
           │  (26)   │  connect (16) + CLI session (10)
           ├─────────┤
-          │  Unit   │  176 tests — pure functions, no device needed
+          │  Unit   │  321 tests — pure functions, no device needed
           │  (176)  │  xml, prune, aria, interact, termux, termux-api,
           │         │  mcp, ios, usbmux, setup, cli
           └─────────┘

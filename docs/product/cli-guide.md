@@ -1,3 +1,10 @@
+---
+type: reference
+title: CLI Guide
+status: stable
+contract: docs/product/prd.md
+---
+
 # CLI Guide
 
 Complete reference for `baremobile` — the command-line interface to baremobile.

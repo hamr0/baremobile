@@ -1,3 +1,10 @@
+---
+type: reference
+title: iOS Translation Layer
+status: stable
+contract: docs/product/prd.md
+---
+
 # iOS Translation Layer — Design Reference
 
 > How iOS snapshots work: WDA XML → Android node shape → shared prune pipeline.

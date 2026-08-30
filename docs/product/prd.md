@@ -1,8 +1,7 @@
 ---
-type: reference
+type: contract
 title: Architecture Blueprint
-status: stable
-sources: [docs/archive/prd.md]
+status: authoritative
 ---
 
 # Architecture Blueprint
