@@ -26,5 +26,11 @@ jobs:
         run: npm run typecheck
       - name: Build types
         run: npm run build:types
+      - name: Adopter-visible declarations
+        # Checks a PROPERTY of the whole shipped surface (no bare `object` returns;
+        # the two platform pages agree on the methods they share), rather than the
+        # handful of methods a hand-written quickstart happens to call. See the
+        # header of scripts/check-adopter-types.mjs for what it cannot catch.
+        run: npm run check:types
       - name: Test
         run: npm test

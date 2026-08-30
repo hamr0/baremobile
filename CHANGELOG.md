@@ -1,5 +1,11 @@
 # Changelog
 
+## [Unreleased]
+
+### Added
+
+- **CI now checks a property of the whole adopter-visible surface, not the handful of methods a quickstart happens to call.** The publish workflow's adopter compile gate is necessary but not sufficient: it only exercises what its hand-written quickstart touches, which is precisely how v0.11.1's `page.swipe()` defect reached the registry — the quickstart calls `tap`/`type`/`snapshot`/`screenshot`/`findByText` and never calls `swipe`. Enumerating every method by hand does not scale and rots as methods are added. `scripts/check-adopter-types.mjs` (TypeScript compiler API, no new dependency) instead asserts two properties of the shipped `.d.ts`: no exported function returns a bare `object`, and the Android and iOS pages agree on the required-parameter count and declared return type of every method they both have. A method added tomorrow is covered without anyone remembering to extend a script. Wired into `ci.yml` (every push/PR) and `publish.yml` (before the tarball is packed); exits 1 on a defect and 2 if `types/` was never built, so a misconfigured step cannot look like a pass. Validated against real history rather than a fixture written to pass: it fires on `c006cac` (bare `object` on `connect()`/`translateWda()`, 4 findings), on `c4d60ce` (`page.swipe()`, 5 required vs 4), and on HEAD with the `screenshot()` fix reverted (`Promise<string>` vs `Promise<Buffer>`) — and reports zero on the shipped tree. Known gap, stated in the script header: platform-parity compares the two pages against each other, so a declaration wrong on both platforms in the same way is invisible to it. CI only — no runtime or published-artifact change.
+
 ## 0.11.1 — 2026-08-30
 
 ### Fixed

@@ -95,6 +95,15 @@ jobs:
         # `prepack` instead get it automatically and this is a no-op.
         if: steps.check.outputs.skip == 'false'
         run: npm run build:types --if-present
+      - name: Adopter-visible declarations are not defective
+        # The compile gate below is necessary but NOT sufficient: it only covers the
+        # API surface its hand-written quickstart happens to touch. That is exactly
+        # how v0.11.1's `page.swipe()` defect reached the registry — the quickstart
+        # calls tap/type/snapshot/screenshot/findByText and never calls swipe.
+        # This step checks a property of the WHOLE surface instead, so a method
+        # added tomorrow is covered without anyone remembering to extend a script.
+        if: steps.check.outputs.skip == 'false'
+        run: npm run check:types --if-present
       - name: Types are usable BY AN ADOPTER, not just internally
         # `tsc --noEmit` in Typecheck above checks the SOURCE; it cannot see the
         # generated .d.ts resolved from inside node_modules, which is the one

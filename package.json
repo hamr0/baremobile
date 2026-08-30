@@ -24,6 +24,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "build:types": "tsc",
+    "check:types": "node scripts/check-adopter-types.mjs",
     "prepublishOnly": "npm run build:types",
     "test": "node --test test/unit/*.test.js test/integration/*.test.js",
     "test:ios": "node --test test/ios/*.test.js",
