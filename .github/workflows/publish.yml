@@ -156,24 +156,44 @@ jobs:
           JSON
           # The documented entry points, plus the `baremobile/ios` SUBPATH so that surface
           # is covered too (a root-only quickstart would leave it untested).
-          # It dereferences what is dereferenceable: `snapshot()`'s string and the
-          # `WdaResponse` fields. NOTE `connect()` is declared `Promise<object>` and
-          # `translateWda()` `object | null`, so this gate CANNOT check their shape — a
-          # bare `object` return accepts no property access. Tightening those annotations
-          # would materially strengthen this check.
+          # It DEREFERENCES what it imports rather than just importing it: a name that
+          # only has to resolve proves nothing about its shape, so every call below
+          # reads a field or assigns the result to an explicitly-typed binding. That is
+          # what catches a `@returns {object}` regression — a bare `object` accepts no
+          # property access, so `page.serial` and `parsed.children` fail to compile.
           cat > app.ts <<'TS'
           import { snapshot, connect } from 'baremobile';
-          import { translateWda } from 'baremobile/ios';
-          import type { WdaResponse } from 'baremobile/ios';
+          import type { AndroidPage } from 'baremobile';
+          import { translateWda, connect as connectIos } from 'baremobile/ios';
+          import type { WdaResponse, IosPage } from 'baremobile/ios';
 
           const yaml: string = await snapshot({ serial: 'emulator-5554' });
           console.log(yaml.length);
 
-          const page = await connect({ device: 'auto' });
-          console.log(page);
+          const page: AndroidPage = await connect({ device: 'auto' });
+          const serial: string = page.serial;
+          const screen: string = await page.snapshot({ maxDepth: 20 });
+          await page.tap({ text: 'Settings' });
+          await page.type('3', 'hello', { clear: true });
+          const shot: Buffer = await page.screenshot();
+          const ref: number | null = page.findByText('Wi-Fi');
+          page.close();
+          console.log(serial, screen.length, shot.length, ref);
+
+          const ios: IosPage = await connectIos({ passcode: '1234' });
+          const iosSerial: string = ios.serial;
+          const scale: number = ios.scaleFactor;
+          const iosYaml: string = await ios.snapshot();
+          await ios.activate('com.apple.Preferences');
+          ios.close();
+          console.log(iosSerial, scale, iosYaml.length);
 
           const parsed = translateWda('<XCUIElementTypeApplication/>');
-          if (parsed) console.log(parsed);
+          if (parsed) {
+            const cls: string | undefined = parsed.class;
+            const kids: number = parsed.children.length;
+            console.log(cls, kids);
+          }
 
           const res: WdaResponse = { sessionId: 'abc', value: null };
           console.log(res.sessionId);

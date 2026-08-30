@@ -189,7 +189,7 @@ const SCROLLABLE_TYPES = new Set([
  * Feeds directly into prune() + formatTree() for shared pipeline.
  *
  * @param {string} xml — WDA /source XML string
- * @returns {object | null} root node (same shape as parseXml output)
+ * @returns {import('./types.js').UiNode | null} root node (same shape as parseXml output)
  */
 export function translateWda(xml) {
   if (!xml || typeof xml !== 'string') return null;
@@ -332,8 +332,11 @@ function findNavBack(root) {
  * Connect to an iOS device via WDA and return a page object.
  * Auto-discovers device: WiFi direct > USB (usbmux) > localhost:8100.
  *
+ * The return type is inferred structurally from the page literal below, so
+ * adopters get every method and field without a hand-maintained interface.
+ * See the {@link IosPage} alias for a name to import.
+ *
  * @param {{host?: string, port?: number, passcode?: string}} [opts]
- * @returns {Promise<object>} page
  */
 export async function connect(opts = {}) {
   const passcode = opts.passcode || null;
@@ -674,3 +677,11 @@ export async function connect(opts = {}) {
 
   return page;
 }
+
+/**
+ * The iOS page object returned by {@link connect}: the full WDA-backed
+ * control surface (snapshot/tap/type/unlock/... plus `serial`, `platform`,
+ * `baseUrl` and `scaleFactor`).
+ *
+ * @typedef {Awaited<ReturnType<typeof connect>>} IosPage
+ */

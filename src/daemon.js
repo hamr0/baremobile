@@ -258,9 +258,12 @@ export async function runDaemon(opts, outputDir) {
     ? (await import('./ios.js')).connect
     : (await import('./index.js')).connect;
 
-  const page = await connectFn({
-    device: opts.device,
-  });
+  // The handler table below covers both platforms and gates the
+  // platform-specific handlers on `platform` at runtime; TS cannot narrow the
+  // union through those ternaries, so type the page as the intersection.
+  const page = /** @type {import('./index.js').AndroidPage & import('./ios.js').IosPage} */ (
+    await connectFn({ device: opts.device })
+  );
 
   // Logcat capture (Android only) — bounded ring buffer to keep memory
   // predictable on long-lived daemons. Once we cross LOGCAT_MAX, drop the

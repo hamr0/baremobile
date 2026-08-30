@@ -29,8 +29,12 @@ export async function snapshot(opts = {}) {
 
 /**
  * Connect to a device and return a page object.
+ *
+ * The return type is inferred structurally from the page literal below, so
+ * adopters get every method and field without a hand-maintained interface.
+ * See the {@link AndroidPage} alias for a name to import.
+ *
  * @param {{device?: string, termux?: boolean}} [opts] - device serial or 'auto' (default)
- * @returns {Promise<object>} page
  */
 export async function connect(opts = {}) {
   // Resolve device serial
@@ -219,8 +223,15 @@ export async function connect(opts = {}) {
       throw new WaitTimeout(`ref ${ref} state "${state}"`, timeout);
     },
 
+    /**
+     * Raw PNG bytes. `exec()` is typed `Promise<string>` for its many string
+     * callers; with `encoding: 'buffer'` it hands back a Buffer at runtime, so
+     * re-assert that here rather than shipping adopters a wrong type.
+     * @returns {Promise<Buffer>}
+     */
     async screenshot() {
-      return exec(['exec-out', 'screencap -p'], { serial, timeout: 10_000, encoding: 'buffer' });
+      const out = await exec(['exec-out', 'screencap -p'], { serial, timeout: 10_000, encoding: 'buffer' });
+      return /** @type {Buffer} */ (/** @type {unknown} */ (out));
     },
 
     findByText(text) {
@@ -245,3 +256,11 @@ export async function connect(opts = {}) {
 
   return page;
 }
+
+/**
+ * The Android page object returned by {@link connect}: the full device
+ * control surface (snapshot/tap/type/press/scroll/... plus `serial` and
+ * `platform`).
+ *
+ * @typedef {Awaited<ReturnType<typeof connect>>} AndroidPage
+ */
