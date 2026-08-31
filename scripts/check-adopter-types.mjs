@@ -283,9 +283,17 @@ for (const { file, node } of pageLiterals) {
       // pointers exist here only as a side effect of having built the type
       // checker; depending on that would break silently if this ever ran before
       // the checker was created.
+      // A shorthand property (`post({ pin })`) is a real use of the parameter,
+      // but `getSymbolAtLocation` there resolves to the PROPERTY, not the value.
+      // Missing it would read a genuinely-required parameter as fallback-only —
+      // verified: this exact probe produced a false positive before the switch.
+      const symOf = (id, parent) =>
+        parent && ts.isShorthandPropertyAssignment(parent)
+          ? srcChecker.getShorthandAssignmentValueSymbol(parent)
+          : srcChecker.getSymbolAtLocation(id);
       const uses = [];
       const collect = (n, parent) => {
-        if (ts.isIdentifier(n) && srcChecker.getSymbolAtLocation(n) === sym) uses.push({ n, parent });
+        if (ts.isIdentifier(n) && symOf(n, parent) === sym) uses.push({ n, parent });
         ts.forEachChild(n, (c) => collect(c, n));
       };
       collect(fn.body, undefined);
