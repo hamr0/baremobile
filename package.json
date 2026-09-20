@@ -28,7 +28,8 @@
     "prepublishOnly": "npm run build:types",
     "test": "node --test test/unit/*.test.js test/integration/*.test.js",
     "test:ios": "node --test test/ios/*.test.js",
-    "ios:check": "node test/ios/check-prerequisites.js"
+    "ios:check": "node test/ios/check-prerequisites.js",
+    "check:lockfile": "node scripts/check-lockfile.mjs"
   },
   "keywords": [
     "android",
