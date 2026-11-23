@@ -144,32 +144,13 @@ Android 10+ required (2019 or newer). For WiFi, Termux, emulator, and iOS setup 
 
 Settings, Messages, Chrome, Gmail, Files, Camera, Calculator, Contacts, Play Store, YouTube -- on physical devices and emulators across API 33-35.
 
-## The bare ecosystem
+## bare suite
 
-Local-first, composable agent infrastructure. Same API patterns throughout —
-mix and match, each module works standalone.
+- **Hands** · [barebrowse](https://github.com/hamr0/barebrowse) · **baremobile** · [beeperbox](https://github.com/hamr0/beeperbox)
+- **Rails** · [bareagent](https://github.com/hamr0/bareagent) · [bareguard](https://github.com/hamr0/bareguard) · [barebox](https://github.com/hamr0/barebox) · [litectx](https://github.com/hamr0/litectx)
+- **Apps** · [fwdloop](https://github.com/hamr0/fwdloop) · [bareloop](https://github.com/hamr0/bareloop)
 
-**Core** — the brain, the gate, the memory.
-
-- **[bareagent](https://npmjs.com/package/bare-agent)** — the think→act→observe loop. *Goal in → coordinated actions out.* Replaces LangChain, CrewAI, AutoGen.
-- **[bareguard](https://npmjs.com/package/bareguard)** — the single gate every action passes through. *Action in → allow / deny / ask-a-human out.* Replaces hand-rolled allowlists and scattered policy code.
-- **[litectx](https://npmjs.com/package/litectx)** — tree-sitter code + memory graph with activation decay, plus lightweight context engineering (write · select · compress · isolate). *Query in → ranked context out.*
-
-**Optional reach** — give the agent hands.
-
-- **[barebrowse](https://npmjs.com/package/barebrowse)** — a real browser for agents. *URL in → pruned snapshot out.* Replaces Playwright, Selenium, Puppeteer.
-- **[baremobile](https://npmjs.com/package/baremobile)** — Android + iOS device control. *Screen in → pruned snapshot out.* Replaces Appium, Espresso, XCUITest.
-- **[beeperbox](https://github.com/hamr0/beeperbox)** — 50+ messaging networks via one MCP server (headless Beeper Desktop in Docker). *Chat in → unified message stream out.* Replaces Twilio, per-platform bot APIs.
-
-**What you can build:**
-
-- **Headless automation** — scrape sites, fill forms, extract data, monitor pages on a schedule
-- **QA & testing** — automated test suites for web and Android apps without heavyweight frameworks
-- **Personal AI assistants** — chatbots that browse the web or control your phone on your behalf
-- **Remote device control** — manage Android devices over WiFi, including on-device via Termux
-- **Agentic workflows** — multi-step tasks where an AI plans, browses, and acts across web and mobile
-
-**Why this exists:** Most automation stacks ship 200MB of opinions before you write a line of code. These don't. Install, import, go.
+Pairs well with [bareagent](https://github.com/hamr0/bareagent) (drive it from a goal) and [bareguard](https://github.com/hamr0/bareguard) (approve every tap). → [The whole suite](https://github.com/hamr0)
 
 ## License
 
